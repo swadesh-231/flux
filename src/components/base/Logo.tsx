@@ -1,12 +1,5 @@
 import { cn } from "@/lib/utils";
 
-/**
- * The `<f>` monogram, redrawn as vectors from the original raster mark.
- *
- * Inherits `currentColor`, so it stays legible on either theme — the source
- * PNGs were black artwork on an opaque white plate, which showed up as a white
- * box on the dark navbar.
- */
 export function FluxMark({ className }: { className?: string }) {
   return (
     <svg

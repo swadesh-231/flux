@@ -1,39 +1,50 @@
-import type { Metadata } from "next";
-import {
-  Geist,
-  Geist_Mono,
-  Noto_Sans,
-  Playfair_Display,
-} from "next/font/google";
-import "./globals.css";
-import { cn } from "@/lib/utils";
-import { ThemeProvider } from "@/components/theme-provider";
-import Header from "@/components/base/Header";
+import type { Metadata, Viewport } from "next";
+import { Geist_Mono, Noto_Sans, Playfair_Display } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { dark } from "@clerk/ui/themes";
-const playfairDisplayHeading = Playfair_Display({
+
+import "./globals.css";
+import Footer from "@/components/base/Footer";
+import Header from "@/components/base/Header";
+import { ThemeProvider } from "@/components/theme-provider";
+import { SITE } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+
+
+const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
+  style: ["normal", "italic"],
   variable: "--font-heading",
 });
 
+/** Body face, mapped to `--font-sans` in `globals.css`. */
 const notoSans = Noto_Sans({ subsets: ["latin"], variable: "--font-sans" });
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+/** Used for micro-labels, figures, and code. */
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
   title: {
-    default: "Flux",
-    template: "%s · Flux",
+    default: `${SITE.name} — ${SITE.tagline}`,
+    template: `%s · ${SITE.name}`,
   },
-  description: "Agentic app builder.",
+  description: SITE.description,
+  applicationName: SITE.name,
+  openGraph: {
+    siteName: SITE.name,
+    title: `${SITE.name} — ${SITE.tagline}`,
+    description: SITE.description,
+    type: "website",
+  },
+};
+
+/**
+ * `themeColor` and `colorScheme` belong to the `viewport` export, not
+ * `metadata`, where they have been deprecated since Next 14.
+ */
+export const viewport: Viewport = {
+  colorScheme: "dark",
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({
@@ -42,34 +53,27 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      appearance={{
-        theme: dark,
-      }}
-    >
+    <ClerkProvider appearance={{ theme: dark }}>
       <html
         lang="en"
         suppressHydrationWarning
         className={cn(
-          "h-full",
-          "antialiased",
-          geistSans.variable,
-          geistMono.variable,
+          "h-full antialiased",
           "font-sans",
           notoSans.variable,
-          playfairDisplayHeading.variable,
+          geistMono.variable,
+          playfairDisplay.variable,
         )}
       >
-        <body className="min-h-full flex flex-col">
+        <body className="flex min-h-full flex-col">
           <ThemeProvider
             attribute="class"
-            defaultTheme="dark"
-            enableSystem
+            forcedTheme="dark"
             disableTransitionOnChange
           >
             <Header />
-            {/* Offsets the fixed h-16 header so content isn't hidden beneath it */}
-            <main className="flex-1 pt-16">{children}</main>
+            <main className="flex-1 pt-24">{children}</main>
+            <Footer />
           </ThemeProvider>
         </body>
       </html>

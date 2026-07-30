@@ -39,6 +39,9 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-deep: var(--brand-deep);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -55,7 +58,11 @@
   --card-foreground: oklch(0.147 0.004 49.3);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.147 0.004 49.3);
-  --primary: oklch(0.214 0.009 43.1);
+  /* Brand gold. Deeper on light so `--primary-foreground` still clears it. */
+  --brand: oklch(0.58 0.13 70);
+  --brand-soft: oklch(0.68 0.12 76);
+  --brand-deep: oklch(0.48 0.12 62);
+  --primary: var(--brand);
   --primary-foreground: oklch(0.986 0.002 67.8);
   --secondary: oklch(0.96 0.002 17.2);
   --secondary-foreground: oklch(0.214 0.009 43.1);
@@ -73,6 +80,11 @@
   --chart-4: oklch(0.367 0.016 35.7);
   --chart-5: oklch(0.268 0.011 36.5);
   --radius: 0.625rem;
+  /* Hero bloom: the brand gold at fixed alphas. Spelled out rather than mixed at
+     runtime so there is no opaque `color-mix` fallback to inherit. */
+  --sky-horizon: oklch(0.955 0.008 80);
+  --bloom-core: oklch(0.58 0.13 70 / 0.1);
+  --bloom-edge: oklch(0.58 0.13 70 / 0.04);
   --sidebar: oklch(0.986 0.002 67.8);
   --sidebar-foreground: oklch(0.147 0.004 49.3);
   --sidebar-primary: oklch(0.214 0.009 43.1);
@@ -90,7 +102,13 @@
   --card-foreground: oklch(0.986 0.002 67.8);
   --popover: oklch(0.214 0.009 43.1);
   --popover-foreground: oklch(0.986 0.002 67.8);
-  --primary: oklch(0.922 0.005 34.3);
+  /* Brand gold. `--primary` points at it so every default Button, and anything
+     else keyed to primary, is branded without a bespoke variant. The existing
+     dark `--primary-foreground` is already a deep warm brown, which clears it. */
+  --brand: oklch(0.8 0.11 82);
+  --brand-soft: oklch(0.88 0.07 85);
+  --brand-deep: oklch(0.68 0.12 70);
+  --primary: var(--brand);
   --primary-foreground: oklch(0.214 0.009 43.1);
   --secondary: oklch(0.268 0.011 36.5);
   --secondary-foreground: oklch(0.986 0.002 67.8);
@@ -101,7 +119,11 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.547 0.021 43.1);
+  /* Focus rings pick up the brand too — used as `ring-ring/30`. */
+  --ring: var(--brand);
+  --sky-horizon: oklch(0.225 0.012 62);
+  --bloom-core: oklch(0.8 0.11 82 / 0.16);
+  --bloom-edge: oklch(0.8 0.11 82 / 0.05);
   --chart-1: oklch(0.868 0.007 39.5);
   --chart-2: oklch(0.547 0.021 43.1);
   --chart-3: oklch(0.438 0.017 39.3);
@@ -127,4 +149,56 @@
   html {
     @apply font-sans;
   }
+}
+
+/* ─ Marketing surface ───────────────────────────────────────────────────────
+   Ambient motion and the two backdrop layers behind the hero starfield. Plain
+   CSS, so they cost nothing to render. Opt out of any animation per element
+   with `motion-reduce:animate-none`.
+   ────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --animate-rise: rise 800ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-drift: drift 26s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.875rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(-3%, 1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(3%, -2%, 0) scale(1.08);
+  }
+}
+
+/* A soft gold bloom rising off the horizon, behind the stars. Alphas are baked
+   into `--bloom-*` per theme rather than mixed at runtime. */
+@utility hero-bloom {
+  background-image: radial-gradient(
+    62% 52% at 50% 100%,
+    var(--bloom-core) 0%,
+    var(--bloom-edge) 38%,
+    transparent 72%
+  );
+}
+
+/* The night sky the starfield sits on: warm near-black, lifting towards the
+   horizon so the hero has depth before a single star is drawn. */
+@utility hero-sky {
+  background-image: radial-gradient(
+    120% 80% at 50% 100%,
+    var(--sky-horizon) 0%,
+    var(--background) 62%
+  );
 }
