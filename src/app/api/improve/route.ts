@@ -9,10 +9,7 @@ import {
   AllProvidersUnavailableError,
   isTransientLlmMessage,
 } from "@/lib/ai/generate";
-import {
-  configuredProviders,
-  type AiProvider,
-} from "@/lib/ai/providers";
+import { providersForRole, type AiProvider } from "@/lib/ai/providers";
 import { db } from "@/lib/prisma";
 import type { FileData } from "@/types/workspace";
 
@@ -248,7 +245,8 @@ RULES:
         let result: Awaited<ReturnType<Agent["run"]>> | null = null;
         let lastTransientMessage = "";
 
-        for (const provider of configuredProviders()) {
+        // Improvements are repairs, so they lead with the fix chain.
+        for (const provider of providersForRole("fix")) {
           const agent = buildAgent(provider);
           activeAgent = agent;
           const unsubscribe = subscribeToAgent(agent);

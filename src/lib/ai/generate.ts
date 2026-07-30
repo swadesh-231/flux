@@ -4,9 +4,10 @@ import { ApiError, GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 
 import {
-  configuredProviders,
   GEMINI_FALLBACK_MODELS,
+  providersForRole,
   type AiProvider,
+  type ProviderRole,
 } from "./providers";
 
 // ─── Neutral request shape ────────────────────────────────────────────────────
@@ -46,6 +47,14 @@ export class AllProvidersUnavailableError extends Error {
   }
 }
 
+/** The model ran out of output budget partway through the JSON document. */
+export class TruncatedResponseError extends Error {
+  constructor() {
+    super("The model ran out of room before finishing the response.");
+    this.name = "TruncatedResponseError";
+  }
+}
+
 /**
  * Upstream capacity rather than a bad request: overloaded, rate limited, or a
  * transient 5xx. Worth retrying or switching provider; a 400 or a 401 is not.
@@ -81,6 +90,7 @@ async function* geminiStream(
   apiKey: string,
   model: string,
   request: GenerationRequest,
+  maxOutputTokens: number,
 ): AsyncGenerator<GenerationChunk> {
   const ai = new GoogleGenAI({ apiKey });
 
@@ -99,6 +109,7 @@ async function* geminiStream(
       systemInstruction: request.system,
       temperature: 0.7,
       responseMimeType: "application/json",
+      maxOutputTokens,
       thinkingConfig: { includeThoughts: true },
     },
   });
@@ -107,6 +118,12 @@ async function* geminiStream(
     for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
       if (!part.text) continue;
       yield { kind: part.thought ? "thought" : "output", text: part.text };
+    }
+
+    // Running out of room mid-document is the single most common cause of
+    // unparseable output. Say so rather than letting JSON.parse fail blindly.
+    if (chunk.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+      throw new TruncatedResponseError();
     }
   }
 }
@@ -157,6 +174,7 @@ async function* openAiCompatibleStream(
     model: provider.model,
     messages,
     temperature: 0.7,
+    max_tokens: provider.maxOutputTokens,
     // Both OpenAI and Groq honour JSON mode, which is what keeps the response
     // parseable without stripping markdown fences.
     response_format: { type: "json_object" },
@@ -166,6 +184,10 @@ async function* openAiCompatibleStream(
   for await (const chunk of stream) {
     const text = chunk.choices[0]?.delta?.content;
     if (text) yield { kind: "output", text };
+
+    if (chunk.choices[0]?.finish_reason === "length") {
+      throw new TruncatedResponseError();
+    }
   }
 }
 
@@ -176,28 +198,50 @@ export interface GenerationEvents {
   onAttempt?: (info: { provider: AiProvider; model: string }) => void;
   /** Fires when a provider is given up on entirely. */
   onFallback?: (info: { from: string; to: string | null }) => void;
+  /** Reasoning text, for the live status list. Never part of the result. */
+  onThought?: (text: string) => void;
+}
+
+/** Models sometimes wrap JSON in a fence despite being told not to. */
+function stripCodeFence(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("```")) return trimmed;
+  return trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/, "")
+    .trim();
 }
 
 /**
- * Streams a generation, walking the provider chain until one succeeds.
+ * Runs a generation against the chain for `role` and returns the parsed result.
  *
- * The fallback boundary is **the first output chunk**, not the opening of the
- * stream. Gemini in particular accepts the request, starts streaming, and only
- * then returns 503 — so treating "opened successfully" as healthy lets a dead
- * provider through. Until output text has been yielded, nothing is committed
- * downstream (status labels are cosmetic), so switching is safe. After that
- * point an error has to propagate: resuming elsewhere would splice two
- * different JSON documents together.
+ * Everything is buffered rather than streamed to the caller, and that is the
+ * point: the response is only usable if it parses, so a provider that returns
+ * a truncated or malformed document is treated exactly like one that returned
+ * 503 — log it and move to the next. Streaming the raw text out would commit
+ * us to the first provider that produced *any* bytes, which is how a single
+ * bad response used to fail the whole build.
+ *
+ * Reasoning arrives through `onThought` as it happens, because status labels
+ * are cosmetic and cost nothing if the attempt is later abandoned.
  */
-export async function* streamGeneration(
-  request: GenerationRequest,
-  events: GenerationEvents = {},
-): AsyncGenerator<GenerationChunk> {
-  const providers = configuredProviders();
+export async function generateJson<T>({
+  request,
+  role,
+  parse,
+  events = {},
+}: {
+  request: GenerationRequest;
+  role: ProviderRole;
+  /** Turns raw model output into the result. Throw to reject the attempt. */
+  parse: (raw: string) => T;
+  events?: GenerationEvents;
+}): Promise<{ value: T; provider: AiProvider; model: string }> {
+  const providers = providersForRole(role);
 
   if (providers.length === 0) {
     throw new Error(
-      "No AI provider is configured. Set GEMINI_API_KEY, OPEN_AI_API_KEY, or GROQ_API_KEY.",
+      "No AI provider is configured. Set OPEN_AI_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY.",
     );
   }
 
@@ -213,28 +257,33 @@ export async function* streamGeneration(
 
     for (const model of models) {
       for (let attempt = 1; attempt <= 2; attempt++) {
-        let producedOutput = false;
-
         try {
           events.onAttempt?.({ provider, model });
 
           const source =
             provider.id === "gemini"
-              ? geminiStream(apiKey, model, request)
+              ? geminiStream(apiKey, model, request, provider.maxOutputTokens)
               : openAiCompatibleStream(provider, apiKey, request);
 
+          let output = "";
           for await (const chunk of source) {
-            if (chunk.kind === "output") producedOutput = true;
-            yield chunk;
+            if (chunk.kind === "output") output += chunk.text;
+            else events.onThought?.(chunk.text);
           }
 
-          return; // ran to completion
+          return { value: parse(stripCodeFence(output)), provider, model };
         } catch (error) {
-          if (producedOutput || !isTransient(error)) throw error;
+          const retryable =
+            isTransient(error) ||
+            error instanceof TruncatedResponseError ||
+            error instanceof SyntaxError; // JSON.parse rejected the document
+
+          if (!retryable) throw error;
 
           lastError = error;
           console.warn(
-            `[ai] ${provider.id}/${model} unavailable (attempt ${attempt}/2)`,
+            `[ai] ${provider.id}/${model} attempt ${attempt}/2 failed:`,
+            error instanceof Error ? error.message.slice(0, 120) : error,
           );
           if (attempt < 2) await sleep(500 * attempt);
         }
@@ -247,7 +296,7 @@ export async function* streamGeneration(
     });
   }
 
-  console.error("[ai] all providers unavailable; last error:", lastError);
+  console.error("[ai] every provider failed; last error:", lastError);
   throw new AllProvidersUnavailableError(
     lastError instanceof Error ? lastError.message.slice(0, 120) : undefined,
   );

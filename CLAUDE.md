@@ -98,16 +98,26 @@ through `@prisma/adapter-pg` + `pg` (Neon), driven by `DATABASE_URL`.
 - `POST /api/improve` — the `@cline/sdk` agent loop edits files in place through an `update_file`
   tool. Pro-only. `next.config.ts` lists the `@cline/*` packages in `serverExternalPackages`.
 
-**Three providers, one chain — `src/lib/ai/`.** `providers.ts` lists Gemini, OpenAI, and Groq in
-preference order; `generate.ts` walks it. Any single provider can be down for hours (Gemini returns
-503 UNAVAILABLE under load), so both API routes and the Cline agent read the same chain. A provider
-with no key set is skipped, not failed — dropping a key degrades the chain rather than breaking it.
+**Three providers, two chains — `src/lib/ai/`.** `providers.ts` defines the roles; every job walks
+its chain until one answers, skipping providers with no key set:
 
-The fallback boundary is **the first output chunk, not the opening of the stream.** Gemini accepts
-the request, starts streaming, and only then errors — so "opened successfully" is not proof of
-health. Until output text has been yielded nothing is committed downstream and switching is safe;
-after that an error must propagate, because resuming elsewhere would splice two different JSON
-documents together. `/api/improve` applies the same rule via `hasAppliedWork`.
+- `build` — writing a whole app. **OpenAI leads**, then Gemini, then Groq. OpenAI is the most
+  reliable at returning one large, well-formed JSON document.
+- `fix` — repairing a broken preview or applying an improvement. **Gemini leads**, then Groq, then
+  OpenAI. `/api/code-gen` picks the chain from the request's `intent`; `/api/improve` is always
+  `fix`.
+
+**`generateJson` buffers rather than streams the result, and that is deliberate.** The response is
+only usable if it parses, so a provider returning a truncated or shapeless document is treated
+exactly like one returning 503 — logged and retried on the next model, then the next provider.
+Streaming raw text to the caller would commit the run to whichever provider emitted the first byte,
+which is how one bad response used to fail the entire build with "AI returned invalid JSON".
+Reasoning still arrives live through `onThought`, because status labels cost nothing if the attempt
+is later abandoned.
+
+Truncation is detected explicitly (`finishReason: MAX_TOKENS` / `finish_reason: "length"`) and each
+provider carries its own `maxOutputTokens`, because silently running out of budget mid-document is
+the most common cause of unparseable output.
 
 Adapters normalise to `PromptMessage` (role + text + optional image). Gemini has its own SDK;
 OpenAI and Groq share one OpenAI-compatible adapter differing only by `baseUrl` and model. Groq's
@@ -183,11 +193,12 @@ declared in `globals.css` — Tailwind does not invent them from the class name.
    the moment you wrap a pane in anything — a tab panel, a flex row — the panes lose their height
    and render stacked on top of each other. Lay `SandpackPreview` / `SandpackCodeEditor` out in
    your own flex containers instead.
-2. **The panes are a split, not tabs** — code (with the file tree) on the left, preview on the
-   right, with a draggable divider whose position is persisted. Both are always mounted; never
-   unmount one, as that tears down and reboots the preview iframe. Build progress is a hairline
-   above the panes plus a status line in the toolbar — deliberately *not* an overlay, because a
-   veil hides code and preview during exactly the stretch you want to watch them.
+2. **One pane at a time, Preview by default**, switched by the toolbar toggle; a finished build
+   snaps back to Preview. Both panes stay mounted regardless — unmounting the preview reboots the
+   Sandpack iframe and loses the running app's state. Switch with an inline `style={{ display }}`,
+   not a class and not the `hidden` attribute, because Sandpack's CSS-in-JS sets `display` on
+   those subtrees and wins otherwise. Build progress is a hairline above the pane plus a status
+   line in the toolbar — deliberately *not* an overlay.
 3. **The provider wrapper is a flex container,** so the panel's root needs `min-w-0 flex-1` or the
    preview renders in a narrow strip with dead space beside it. While dragging the divider, an
    overlay has to cover the preview or the iframe eats the mouse events.

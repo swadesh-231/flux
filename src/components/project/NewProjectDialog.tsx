@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { SUGGESTIONS } from "@/lib/data";
+import { cn } from "@/lib/utils";
 
 /** Matches the `title` column, which the workspace slices to 80 anyway. */
 const MAX_NAME = 80;
@@ -22,10 +23,12 @@ const MAX_NAME = 80;
 /**
  * Names a project before opening the workspace.
  *
- * Both fields are optional: the name falls back to whatever the model titles
- * the app, and an empty brief just drops you into an idle workspace with the
- * composer focused. They travel as search params, because no row exists yet —
- * a workspace is only written on the first successful generation.
+ * The name is required — without one every project lands in the list as
+ * "Untitled app". The brief is optional; leaving it empty just drops you into
+ * an idle workspace with the composer focused.
+ *
+ * Both travel as search params, because no row exists yet — a workspace is
+ * only written on the first successful generation.
  */
 export function NewProjectDialog({
   children,
@@ -36,14 +39,26 @@ export function NewProjectDialog({
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
   const [brief, setBrief] = React.useState("");
+  // Set only on a failed submit. Flagging on blur fired the moment Radix
+  // moved focus into the dialog, so the field turned red before typing.
+  const [touched, setTouched] = React.useState(false);
+
+  // A name is required: without one the workspace falls back to "Untitled app"
+  // and the projects list fills up with rows nobody can tell apart.
+  const trimmedName = name.trim();
+  const canStart = trimmedName.length > 0;
 
   const start = () => {
-    const params = new URLSearchParams();
-    if (name.trim()) params.set("title", name.trim().slice(0, MAX_NAME));
+    if (!canStart) {
+      setTouched(true);
+      return;
+    }
+
+    const params = new URLSearchParams({ title: trimmedName.slice(0, MAX_NAME) });
     if (brief.trim()) params.set("prompt", brief.trim());
 
     setOpen(false);
-    router.push(`/workspace${params.size ? `?${params}` : ""}`);
+    router.push(`/workspace?${params}`);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -60,6 +75,7 @@ export function NewProjectDialog({
       onOpenChange={(next) => {
         setOpen(next);
         if (!next) {
+          setTouched(false);
           setName("");
           setBrief("");
         }
@@ -81,19 +97,32 @@ export function NewProjectDialog({
           <div className="space-y-2">
             <label
               htmlFor="project-name"
-              className="block font-mono text-[0.625rem] uppercase tracking-[0.16em] text-muted-foreground"
+              className="flex items-baseline justify-between font-mono text-[0.625rem] uppercase tracking-[0.16em] text-muted-foreground"
             >
-              Name
+              <span>
+                Name <span className="text-brand">*</span>
+              </span>
+              {touched && !canStart && (
+                <span className="text-destructive">Required</span>
+              )}
             </label>
             <input
               id="project-name"
               autoFocus
+              required
+              aria-invalid={touched && !canStart}
               value={name}
               maxLength={MAX_NAME}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Invoice tracker"
-              className="h-10 w-full rounded-lg border border-border bg-card/60 px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus:border-brand/40 focus:outline-none"
+              className={cn(
+                "h-10 w-full rounded-lg border bg-card/60 px-3 text-sm text-foreground transition-colors",
+                "placeholder:text-muted-foreground/60 focus:outline-none",
+                touched && !canStart
+                  ? "border-destructive/60 focus:border-destructive"
+                  : "border-border focus:border-brand/40",
+              )}
             />
           </div>
 
@@ -131,7 +160,11 @@ export function NewProjectDialog({
         </div>
 
         <DialogFooter>
-          <Button onClick={start} className="w-full rounded-full sm:w-auto">
+          <Button
+            onClick={start}
+            disabled={!canStart}
+            className="w-full rounded-full sm:w-auto"
+          >
             {brief.trim() ? "Build it" : "Open workspace"}
             <ArrowRight data-icon="inline-end" aria-hidden />
           </Button>

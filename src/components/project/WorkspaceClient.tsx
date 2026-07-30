@@ -98,13 +98,20 @@ export function WorkspaceClient({
     fileDataRef.current = fileData;
   }, [fileData]);
 
+  // Only the last few steps are kept. The model emits a reasoning label every
+  // second or so, and an uncapped list grew past a dozen lines and pushed the
+  // conversation out of view.
+  const MAX_VISIBLE_STEPS = 4;
+
   const pushStep = (label: string) => {
-    setStatusLog((prev) => [
-      ...prev.map((s, i) =>
-        i === prev.length - 1 ? { ...s, status: "done" as const } : s
-      ),
-      { label, status: "running" as const },
-    ]);
+    setStatusLog((prev) =>
+      [
+        ...prev.map((s, i) =>
+          i === prev.length - 1 ? { ...s, status: "done" as const } : s
+        ),
+        { label, status: "running" as const },
+      ].slice(-MAX_VISIBLE_STEPS)
+    );
   };
 
   const completeSteps = () => {
@@ -116,7 +123,7 @@ export function WorkspaceClient({
   };
 
   const handleGenerate = useCallback(
-    async (prompt: string, imageUrl?: string) => {
+    async (prompt: string, imageUrl?: string, intent: "build" | "fix" = "build") => {
       if (isGenerating) return;
       if (credits < MIN_GENERATIONS_REQUIRED) return;
 
@@ -147,6 +154,7 @@ export function WorkspaceClient({
           body: JSON.stringify({
             workspaceId: currentWorkspaceId,
             userId,
+            intent,
             title: initialTitle,
             messages: conversationHistory,
             fileData: fileDataRef.current,
@@ -388,7 +396,9 @@ export function WorkspaceClient({
           onImprove={handleImprove}
           onFixError={(error) =>
             handleGenerate(
-              `There is an error in the preview:\n\n\`\`\`\n${error}\n\`\`\`\n\nPlease fix it.`
+              `There is an error in the preview:\n\n\`\`\`\n${error}\n\`\`\`\n\nPlease fix it.`,
+              undefined,
+              "fix"
             )
           }
           appTitle={workspace?.title ?? initialTitle ?? fileData?.title ?? null}

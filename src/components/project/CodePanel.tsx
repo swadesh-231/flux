@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   SandpackProvider,
   SandpackCodeEditor,
@@ -9,13 +9,13 @@ import {
   useSandpack,
 } from "@codesandbox/sandpack-react";
 import {
-  Download,
   AlertTriangle,
-  Sparkles,
-  Loader2,
   ArrowUp,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Code2,
+  Download,
+  Eye,
+  Loader2,
+  Sparkles,
   X,
 } from "lucide-react";
 import JSZip from "jszip";
@@ -76,6 +76,9 @@ const BASE_DEPENDENCIES: Record<string, string> = {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** Only one is on screen at a time; Preview is the default. */
+type Pane = "preview" | "code";
+
 interface CodePanelProps {
   fileData: FileData | null;
   isGenerating: boolean;
@@ -85,75 +88,6 @@ interface CodePanelProps {
   appTitle: string | null;
   isImproving: boolean;
   isProUser: boolean;
-}
-
-// ─── Split sizing ────────────────────────────────────────────────────────────
-
-const SPLIT_KEY = "flux:code-split";
-const MIN_SPLIT = 25;
-const MAX_SPLIT = 75;
-
-const clampSplit = (value: number) =>
-  Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, value));
-
-/** Never changes after load — the stored value is only read once, on mount. */
-const subscribeToNothing = () => () => {};
-
-function readStoredSplit(): number {
-  const saved = Number(window.localStorage.getItem(SPLIT_KEY));
-  return Number.isFinite(saved) && saved > 0 ? clampSplit(saved) : 50;
-}
-
-/**
- * Percentage width given to the code pane, draggable via the divider.
- *
- * Persisted, because at these widths the right balance is personal — someone
- * reading generated code wants the opposite split from someone eyeballing the
- * preview, and re-dragging it every visit would be tedious.
- */
-function useSplit() {
-  // useSyncExternalStore rather than an effect: it takes an explicit server
-  // snapshot, so SSR renders 50 and the client swaps in the stored value
-  // without a hydration mismatch — and without a setState-in-effect.
-  const stored = useSyncExternalStore(
-    subscribeToNothing,
-    readStoredSplit,
-    () => 50,
-  );
-
-  const [override, setOverride] = useState<number | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const split = override ?? stored;
-
-  const setSplit = (value: number) => {
-    const next = clampSplit(value);
-    setOverride(next);
-    window.localStorage.setItem(SPLIT_KEY, String(Math.round(next)));
-  };
-
-  useEffect(() => {
-    if (!dragging) return;
-
-    const onMove = (event: MouseEvent) => {
-      const box = containerRef.current?.getBoundingClientRect();
-      if (!box || box.width === 0) return;
-      setSplit(((event.clientX - box.left) / box.width) * 100);
-    };
-    const onUp = () => setDragging(false);
-
-    // Capture phase, so the drag keeps tracking even as the pointer crosses
-    // the preview iframe — which otherwise swallows the events.
-    window.addEventListener("mousemove", onMove, true);
-    window.addEventListener("mouseup", onUp, true);
-    return () => {
-      window.removeEventListener("mousemove", onMove, true);
-      window.removeEventListener("mouseup", onUp, true);
-    };
-  }, [dragging]);
-
-  return { split, setSplit, dragging, setDragging, containerRef };
 }
 
 // ─── SandpackInner ────────────────────────────────────────────────────────────
@@ -188,8 +122,7 @@ function SandpackInner({
   const [isExporting, setIsExporting] = useState(false);
   const [improveInput, setImproveInput] = useState("");
   const [showImproveInput, setShowImproveInput] = useState(false);
-  const [showTree, setShowTree] = useState(true);
-  const { split, setSplit, dragging, setDragging, containerRef } = useSplit();
+  const [activePane, setActivePane] = useState<Pane>("preview");
 
   // Push file content updates into Sandpack without remounting.
   // SandpackProvider's key only changes when the file *path set* changes, so
@@ -241,6 +174,8 @@ function SandpackInner({
   if (fileData !== seenFileData) {
     setSeenFileData(fileData);
     setPreviewError(null);
+    // A finished build should show its result, even if you were reading code.
+    if (fileData) setActivePane("preview");
   }
 
   const handleImproveSubmit = async () => {
@@ -368,28 +303,35 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`,
     <div className="relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
       {/* ── Toolbar ── */}
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
-        {/* Code and preview are side by side, so this is a file-tree toggle
-            rather than a pane switcher. */}
-        <button
-          type="button"
-          onClick={() => setShowTree((open) => !open)}
-          aria-pressed={showTree}
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-full px-3",
-            "font-mono text-[0.625rem] uppercase tracking-[0.16em] transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
-            showTree
-              ? "bg-foreground/[0.08] text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {showTree ? (
-            <PanelLeftClose className="size-3" aria-hidden />
-          ) : (
-            <PanelLeftOpen className="size-3" aria-hidden />
-          )}
-          Files
-        </button>
+        {/* One pane at a time — Preview is the default, because the finished
+            app is what you want to see first. */}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border p-0.5">
+          {/* Code first so it reads left-to-right as code → preview, matching
+              how the two are talked about. Preview is still what opens. */}
+          {(["code", "preview"] as const).map((pane) => {
+            const Icon = pane === "preview" ? Eye : Code2;
+            const active = activePane === pane;
+            return (
+              <button
+                key={pane}
+                type="button"
+                onClick={() => setActivePane(pane)}
+                aria-pressed={active}
+                className={cn(
+                  "inline-flex h-6 items-center gap-1.5 rounded-full px-3",
+                  "font-mono text-[0.625rem] uppercase tracking-[0.16em] transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
+                  active
+                    ? "bg-foreground/[0.09] text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Icon className="size-3" aria-hidden />
+                {pane}
+              </button>
+            );
+          })}
+        </div>
 
         {/* Live status, in the chrome rather than over the panes. */}
         {isBusy && (
@@ -503,23 +445,58 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`,
         </div>
       </div>
 
-      {/* ── Panes: code left, preview right ── */}
-      <div ref={containerRef} className="relative flex min-h-0 flex-1">
+      {/* ── Panes ──
+          Exactly one is displayed, but both stay mounted: unmounting the
+          preview tears down and reboots the Sandpack iframe, losing the
+          running app's state every time you glance at the code. Visibility is
+          an inline style rather than a class or the `hidden` attribute,
+          because Sandpack's CSS-in-JS sets `display` on these subtrees and
+          would otherwise win. */}
+      <div className="relative min-h-0 flex-1">
+        {/* Preview, framed like a browser window so it reads as the finished
+            product rather than a bare iframe bolted into the panel. */}
+        <div
+          className="absolute inset-0 flex flex-col bg-muted/20 p-3"
+          style={{ display: activePane === "preview" ? "flex" : "none" }}
+        >
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_20px_50px_-30px_rgb(0_0_0/0.9)]">
+            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-card/60 px-3">
+              <span aria-hidden className="flex gap-1.5">
+                <span className="size-2 rounded-full bg-foreground/15" />
+                <span className="size-2 rounded-full bg-foreground/15" />
+                <span className="size-2 rounded-full bg-foreground/15" />
+              </span>
+              <span className="mx-auto max-w-[60%] truncate rounded-full bg-muted/60 px-3 py-0.5 font-mono text-[0.5625rem] tracking-wide text-muted-foreground">
+                {appTitle
+                  ? `${appTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.flux.app`
+                  : "preview"}
+              </span>
+            </div>
+
+            <div className="min-h-0 flex-1">
+              <SandpackPreview
+                className="h-full"
+                style={{ height: "100%" }}
+                showOpenInCodeSandbox={false}
+                showRefreshButton
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Code */}
         <div
-          className="flex min-w-0 overflow-hidden"
-          style={{ width: `${split}%` }}
+          className="absolute inset-0"
+          style={{ display: activePane === "code" ? "flex" : "none" }}
         >
-          {showTree && (
-            <SandpackFileExplorer
-              style={{
-                height: "100%",
-                width: 170,
-                flexShrink: 0,
-                borderRight: "1px solid var(--border)",
-              }}
-            />
-          )}
+          <SandpackFileExplorer
+            style={{
+              height: "100%",
+              width: 190,
+              flexShrink: 0,
+              borderRight: "1px solid var(--border)",
+            }}
+          />
           <SandpackCodeEditor
             style={{ height: "100%", flex: 1, minWidth: 0 }}
             showTabs
@@ -530,40 +507,7 @@ root.render(<React.StrictMode><App /></React.StrictMode>);`,
           />
         </div>
 
-        {/* Divider */}
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize code and preview"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDoubleClick={() => setSplit(50)}
-          className={cn(
-            "group relative w-px shrink-0 cursor-col-resize bg-border",
-            "before:absolute before:inset-y-0 before:-left-1 before:-right-1 before:content-['']",
-            "hover:bg-brand/50",
-            dragging && "bg-brand",
-          )}
-        />
-
-        {/* Preview */}
-        <div className="relative min-w-0 flex-1 overflow-hidden">
-          <SandpackPreview
-            className="h-full"
-            style={{ height: "100%" }}
-            showOpenInCodeSandbox={false}
-            showRefreshButton
-          />
-          {/* While dragging, the iframe would otherwise eat the mouse events
-              and the divider would stick to the pointer. */}
-          {dragging && <div className="absolute inset-0 z-10" />}
-        </div>
-
-        {/* Progress is a hairline at the top edge, not a veil over the panes.
-            A full-cover overlay hid both code and preview for the whole build,
-            which is exactly when you most want to watch them. */}
+        {/* Progress is a hairline at the top edge, not a veil over the pane. */}
         {isBusy && (
           <div
             aria-hidden

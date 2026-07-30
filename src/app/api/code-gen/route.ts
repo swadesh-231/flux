@@ -5,9 +5,11 @@ import { aj } from "@/lib/arcjet";
 import { GENERATION_COST } from "@/lib/constants";
 import {
   AllProvidersUnavailableError,
-  streamGeneration,
+  generateJson,
+  TruncatedResponseError,
   type PromptMessage,
 } from "@/lib/ai/generate";
+import type { ProviderRole } from "@/lib/ai/providers";
 import { db } from "@/lib/prisma";
 import type { Message, FileData } from "@/types/workspace";
 
@@ -88,6 +90,14 @@ RULES:
 function describeStreamError(error: unknown): string {
   if (error instanceof AllProvidersUnavailableError) return error.message;
 
+  if (error instanceof TruncatedResponseError) {
+    return "That app was too large to finish in one response. Try asking for something smaller, or build it in steps.";
+  }
+
+  if (error instanceof SyntaxError) {
+    return "Every model returned a malformed response. Please try again.";
+  }
+
   if (process.env.NODE_ENV !== "production" && error instanceof Error) {
     return `${error.message} (shown because NODE_ENV is not production)`;
   }
@@ -145,17 +155,23 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { workspaceId, userId, title, messages, fileData } = body as {
+  const { workspaceId, userId, title, messages, fileData, intent } = body as {
     workspaceId: string | null;
     userId: string;
     /** Name from the New Project dialog, if the user gave one. */
     title?: string | null;
     messages: Message[];
     fileData: FileData | null;
+    /** Which provider chain to use — see PROVIDER_ROLES. */
+    intent?: ProviderRole;
   };
 
   // A name the user typed themselves outranks anything the model invents.
   const userTitle = title?.trim().slice(0, 80) || null;
+
+  // Building a new app leads with OpenAI; fixing a broken one leads with
+  // Gemini. Anything unrecognised is treated as a build.
+  const intentRole: ProviderRole = intent === "fix" ? "fix" : "build";
 
   if (!messages?.length) {
     return Response.json({ message: "No messages provided" }, { status: 400 });
@@ -219,74 +235,61 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        const modelStream = streamGeneration(
-          {
+        let lastEmitTime = 0; // throttles reasoning labels
+
+        const { value: parsed, provider } = await generateJson({
+          role: intentRole,
+          request: {
             system: SYSTEM_PROMPT,
             messages: buildPrompt(messages, fileData),
           },
-          {
-            onAttempt: ({ provider, model }) => {
-              console.log(`[code-gen] trying ${provider.id}/${model}`);
+          // Rejecting here rejects the whole attempt, so a provider that
+          // returns a truncated or shapeless document is retried on the next
+          // one instead of failing the build.
+          parse: (raw) => {
+            const value = JSON.parse(raw) as {
+              assistantMessage: string;
+              title?: string;
+              files: Record<string, { code: string }>;
+              dependencies: Record<string, string>;
+            };
+            if (
+              !value.files ||
+              typeof value.files !== "object" ||
+              !Object.keys(value.files).length
+            ) {
+              throw new SyntaxError("Response contained no files.");
+            }
+            return value;
+          },
+          events: {
+            onAttempt: ({ provider: p, model }) => {
+              console.log(`[code-gen] ${intentRole}: trying ${p.id}/${model}`);
             },
             onFallback: ({ to }) => {
               if (to) {
                 enqueue(
-                  sseEvent("status", {
-                    message: `Provider busy — trying ${to}…`,
-                  })
+                  sseEvent("status", { message: `Switching to ${to}…` })
                 );
               }
             },
-          }
-        );
+            onThought: (text) => {
+              // Reasoning — one short label at a time, heavily throttled.
+              const now = Date.now();
+              if (now - lastEmitTime < 1200) return;
+              const label = extractThoughtLabel(text);
+              if (label) {
+                enqueue(sseEvent("status", { message: label }));
+                lastEmitTime = now;
+              }
+            },
+          },
+        });
 
-        let accumulated = ""; // the JSON document
-        let lastEmitTime = 0; // throttles reasoning labels
-
-        for await (const chunk of modelStream) {
-          if (chunk.kind === "output") {
-            accumulated += chunk.text;
-            continue;
-          }
-
-          // Reasoning — surface a short label, not the whole wall of text.
-          const now = Date.now();
-          if (now - lastEmitTime > 600) {
-            const label = extractThoughtLabel(chunk.text);
-            if (label) {
-              enqueue(sseEvent("status", { message: label }));
-              lastEmitTime = now;
-            }
-          }
-        }
-        let parsed: {
-          assistantMessage: string;
-          title?: string;
-          files: Record<string, { code: string }>;
-          dependencies: Record<string, string>;
-        };
-
-        try {
-          parsed = JSON.parse(accumulated);
-        } catch {
-          enqueue(
-            sseEvent("error", {
-              message: "AI returned invalid JSON. Please try again.",
-            })
-          );
-          return;
-        }
+        console.log(`[code-gen] served by ${provider.id}`);
 
         const { assistantMessage, title: aiTitle, files, dependencies } = parsed;
 
-        if (!files || typeof files !== "object" || !Object.keys(files).length) {
-          enqueue(
-            sseEvent("error", {
-              message: "AI response missing files. Please try again.",
-            })
-          );
-          return;
-        }
         enqueue(sseEvent("status", { message: "Validating packages…" }));
         const validatedDeps = await validateDependencies(dependencies ?? {});
         const newFileData: FileData = {
