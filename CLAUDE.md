@@ -87,5 +87,5 @@ A second registry, `@animate-ui` (`https://animate-ui.com/r/{name}.json`), suppl
 - `src/lib/data.ts` — landing-page copy (features, steps, prompt placeholders, suggestions).
   Keep marketing content out of components.
 
-The fixed header is cleared by `pt-24` on `<main>` in `layout.tsx` (`pt-4` inset + `h-16` pane + gap);
+The fixed header is cleared by `pt-22` on `<main>` in `layout.tsx` (`pt-4` inset + `h-14` pane + gap);
 changing the header's height or inset means updating that value.

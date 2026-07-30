@@ -29,9 +29,9 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "inline-flex h-9 items-center rounded-lg px-3",
+        "inline-flex h-9 items-center rounded-full px-3.5",
         "text-[0.6875rem] font-semibold uppercase tracking-widest",
-        "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+        "text-muted-foreground hover:bg-white/[0.07] hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
         squeeze,
         "group-data-[state=condensed]/header:h-8",
@@ -47,7 +47,7 @@ const Header = () => {
     <HeaderShell>
       {/* Three zones on a grid, so the centre group sits optically centred
           rather than wherever justify-between happens to leave it. */}
-      <nav className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 sm:px-6">
+      <nav className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 sm:gap-4 sm:px-6">
         <div className="flex justify-start">
           <Link
             href="/"
@@ -55,7 +55,6 @@ const Header = () => {
             className="text-foreground transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
           >
             <Logo
-              wordmarkClassName="hidden sm:block"
               className={cn(
                 "origin-left",
                 squeeze,
@@ -79,30 +78,41 @@ const Header = () => {
           </Show>
         </div>
 
-        <div className="flex items-center justify-end gap-2 sm:gap-3">
+        {/* Pinned to the third track — when the centre nav is display:none
+            below md, auto-placement would otherwise pull this into column 2. */}
+        <div className="col-start-3 flex items-center justify-end gap-2 sm:gap-3">
           <Show when="signed-out">
-            <MobileNav links={NAV_LINKS} />
-
             <SignInButton mode="modal">
               <Button
                 variant="ghost"
                 size="sm"
-                className="hidden rounded-lg sm:inline-flex"
+                className="hidden rounded-full text-muted-foreground hover:bg-white/[0.07] sm:inline-flex"
               >
                 Sign in
               </Button>
             </SignInButton>
 
             <SignUpButton mode="modal">
-              <Button size="sm" className="rounded-lg">
-                Start free
+              <Button
+                size="sm"
+                className={cn(
+                  "hidden rounded-full sm:inline-flex",
+                  // Sheen over the brand gold, plus a soft gold bloom below.
+                  "bg-linear-to-b from-white/25 via-white/5 to-transparent",
+                  "shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_8px_20px_-8px_color-mix(in_oklab,var(--primary)_60%,transparent)]",
+                  "hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_10px_26px_-8px_color-mix(in_oklab,var(--primary)_85%,transparent)]",
+                )}
+              >
+                Get started
                 <ArrowRight data-icon="inline-end" aria-hidden />
               </Button>
             </SignUpButton>
+
+            <MobileNav links={NAV_LINKS} />
           </Show>
 
           <Show when="signed-in">
-            <Button asChild size="sm" className="rounded-lg">
+            <Button asChild size="sm" className="rounded-full">
               <Link href="/workspace">
                 New project
                 <ArrowRight data-icon="inline-end" aria-hidden />

@@ -25,23 +25,20 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 
 export const metadata: Metadata = {
   title: {
-    default: `${SITE.name} — ${SITE.tagline}`,
+    default: SITE.name,
     template: `%s · ${SITE.name}`,
   },
   description: SITE.description,
   applicationName: SITE.name,
   openGraph: {
     siteName: SITE.name,
-    title: `${SITE.name} — ${SITE.tagline}`,
+    title: `${SITE.name}`,
     description: SITE.description,
     type: "website",
   },
 };
 
-/**
- * `themeColor` and `colorScheme` belong to the `viewport` export, not
- * `metadata`, where they have been deprecated since Next 14.
- */
+
 export const viewport: Viewport = {
   colorScheme: "dark",
   themeColor: "#0a0a0a",
@@ -72,7 +69,7 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             <Header />
-            <main className="flex-1 pt-24">{children}</main>
+            <main className="flex-1 pt-22">{children}</main>
             <Footer />
           </ThemeProvider>
         </body>

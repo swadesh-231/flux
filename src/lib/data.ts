@@ -8,16 +8,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-/**
- * Marketing copy for the landing page. Kept out of the components so the
- * sections stay layout-only and the wording can be edited in one place.
- */
-
-/**
- * Composer chips. The label stays short enough to read as a tag; the prompt is
- * what actually lands in the field, because "Notes app" on its own is a weak
- * brief.
- */
 export const SUGGESTIONS = [
   {
     label: "SaaS landing page",
@@ -46,7 +36,6 @@ export const SUGGESTIONS = [
   },
 ] as const;
 
-/** Cycled through the composer while it sits idle. */
 export const PLACEHOLDERS = [
   "A dashboard for tracking freelance invoices…",
   "A CRM with a kanban pipeline and notes…",
@@ -56,7 +45,6 @@ export const PLACEHOLDERS = [
   "A portfolio with a case-study template…",
 ] as const;
 
-/** What the generated project is actually made of. */
 export const OUTPUT_STACK = [
   "React",
   "TypeScript",

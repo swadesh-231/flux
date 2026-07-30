@@ -54,15 +54,15 @@ export function HeaderShell({ children }: { children: React.ReactNode }) {
       <div
         data-state={state}
         className={cn(
-          "pointer-events-auto relative flex h-16 w-full max-w-6xl items-center",
-          "rounded-2xl border border-border bg-clip-padding",
-          "bg-background/50 backdrop-blur-xl backdrop-saturate-150",
+          "pointer-events-auto relative flex h-14 w-full max-w-6xl items-center",
+          "rounded-full border border-white/10 bg-clip-padding",
+          "bg-background/55 backdrop-blur-xl backdrop-saturate-150",
           "shadow-[0_8px_28px_-16px_rgb(0_0_0/0.5)]",
           "transition-[max-width,height,background-color,box-shadow] duration-500",
           "motion-reduce:transition-none",
           EASE,
           // The squeeze.
-          "data-[state=condensed]:h-14 data-[state=condensed]:max-w-5xl",
+          "data-[state=condensed]:h-12 data-[state=condensed]:max-w-5xl",
           "data-[state=condensed]:bg-background/85",
           "data-[state=condensed]:shadow-[0_18px_44px_-20px_rgb(0_0_0/0.7)]",
         )}
@@ -81,8 +81,8 @@ export function HeaderShell({ children }: { children: React.ReactNode }) {
         <span
           aria-hidden
           className={cn(
-            "pointer-events-none absolute inset-x-8 top-0 h-px",
-            "bg-linear-to-r from-transparent via-white/20 to-transparent",
+            "pointer-events-none absolute inset-x-10 top-0 h-px",
+            "bg-linear-to-r from-transparent via-white/25 to-transparent",
           )}
         />
 

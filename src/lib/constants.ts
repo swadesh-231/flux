@@ -24,11 +24,8 @@ type PlanDefinition = {
   readonly price: number;
   readonly generations: number;
   readonly clerkPlanId: string | null;
-  /** Draws the emphasised card. Exactly one plan should set this. */
   readonly featured: boolean;
-  /** Lets a tier be retired from the grid without deleting its definition. */
   readonly active: boolean;
-  /** Selling points beyond the allowance line, which is generated. */
   readonly perks: readonly string[];
 };
 
