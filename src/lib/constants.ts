@@ -20,25 +20,6 @@ export const GENERATION_COST = 1;
 export const MIN_GENERATIONS_REQUIRED = 1;
 
 /**
- * The models behind both generation routes, in preference order. Each must be
- * an id `@google/genai` knows and one `@cline/llms` can reach through its
- * `gemini` provider.
- *
- * More than one, because a single Gemini model can return 503 UNAVAILABLE for
- * long stretches when it is in heavy demand — which takes the whole product
- * down if there is nothing to fall back to. `generateWithFallback` walks this
- * list; put the model you actually want first.
- */
-export const GEMINI_MODELS = [
-  "gemini-3.5-flash",
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash",
-] as const;
-
-/** Preferred model. Used where a single id is required (the Cline agent). */
-export const GEMINI_MODEL = GEMINI_MODELS[0];
-
-/**
  * Attached images are inlined as `data:` URLs — into the prompt, and into the
  * `messages` JSON column. 4 MB of source file is roughly 5.3 MB base64, which
  * is comfortable for both.

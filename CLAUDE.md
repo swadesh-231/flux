@@ -33,6 +33,9 @@ a generation and renders the result in Sandpack.
 
 Adding a route means picking a group; dropping one into `src/app/` directly gets no header at all.
 
+Signing in or up lands on **`/projects`** via `NEXT_PUBLIC_CLERK_SIGN_{IN,UP}_FALLBACK_REDIRECT_URL`.
+FALLBACK, not FORCE — a deep link opened while signed out still returns you there afterwards.
+
 ## Next.js 16 — read the bundled docs
 
 Version-specific breaking changes matter here. Authoritative docs ship inside the install at
@@ -90,19 +93,26 @@ through `@prisma/adapter-pg` + `pg` (Neon), driven by `DATABASE_URL`.
 **Generation routes.** Two streaming SSE endpoints, both `runtime = "nodejs"`, both charging
 `GENERATION_COST` credits:
 
-- `POST /api/code-gen` — Gemini (`@google/genai`) returns the whole app as one JSON payload.
-  Attached images arrive as `data:` URLs and are forwarded as `inlineData` parts.
+- `POST /api/code-gen` — returns the whole app as one JSON payload. Attached images arrive as
+  `data:` URLs and are forwarded as real image parts.
 - `POST /api/improve` — the `@cline/sdk` agent loop edits files in place through an `update_file`
   tool. Pro-only. `next.config.ts` lists the `@cline/*` packages in `serverExternalPackages`.
 
-**`GEMINI_MODELS` is a list, not a single id, and that matters.** An individual Gemini model can
-return `503 UNAVAILABLE` for hours at a stretch under demand — `gemini-3.5-flash` did exactly that,
-which took the whole product down. `src/lib/gemini.ts` walks the list, retrying transient failures
-(503/500/429) with backoff before moving to the next model; put the model you actually want first.
-`/api/improve` does the same around the Cline agent, but only retries while `hasAppliedWork` is
-false — once `update_file` has landed an edit, re-running from scratch would compound it. Cline
-wraps provider errors in its own layer, so that path matches on the message (`isTransientLlmMessage`)
-rather than on `ApiError`.
+**Three providers, one chain — `src/lib/ai/`.** `providers.ts` lists Gemini, OpenAI, and Groq in
+preference order; `generate.ts` walks it. Any single provider can be down for hours (Gemini returns
+503 UNAVAILABLE under load), so both API routes and the Cline agent read the same chain. A provider
+with no key set is skipped, not failed — dropping a key degrades the chain rather than breaking it.
+
+The fallback boundary is **the first output chunk, not the opening of the stream.** Gemini accepts
+the request, starts streaming, and only then errors — so "opened successfully" is not proof of
+health. Until output text has been yielded nothing is committed downstream and switching is safe;
+after that an error must propagate, because resuming elsewhere would splice two different JSON
+documents together. `/api/improve` applies the same rule via `hasAppliedWork`.
+
+Adapters normalise to `PromptMessage` (role + text + optional image). Gemini has its own SDK;
+OpenAI and Groq share one OpenAI-compatible adapter differing only by `baseUrl` and model. Groq's
+model is text-only, so `supportsImages: false` makes attachments degrade to a described note rather
+than being silently dropped.
 
 Do not collapse a stream failure into a blanket "Something went wrong": upstream capacity is the
 most likely cause and the user can act on it by retrying. `describeStreamError` keeps known failures
@@ -115,7 +125,7 @@ it** — wrapping both lets the catch swallow the `error` event and end the stre
 
 **Env vars in use:** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`,
 `NEXT_PUBLIC_CLERK_SIGN_IN_URL`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL`, `DATABASE_URL`, `ARCJET_KEY`,
-`GEMINI_API_KEY`.
+`GEMINI_API_KEY`, `OPEN_AI_API_KEY`, `GROQ_API_KEY` (note the underscore in `OPEN_AI`).
 
 ## Styling and components
 
@@ -157,6 +167,13 @@ The fixed header is cleared by `pt-22` on `<main>` in each route-group layout (`
 pane + gap); changing the header's height or inset means updating every group, plus the
 `h-[calc(100dvh-5.5rem)]` the workspace uses to fit both panels on one screen.
 
+**That `h-[calc(...)]` must stay a definite height — `flex-1` will not do.** `body` is `min-h-full`,
+so nothing above the workspace has a resolved height for a percentage or flex basis to size
+against; with `flex-1` the panel grows to fit the code editor and the whole page scrolls, pushing
+the composer off-screen. Separately, every flex child in that column needs an explicit `min-h-0`:
+the default `min-height: auto` makes the transcript refuse to shrink below its content, which
+shoves the composer past the bottom edge. Both failure modes look like "the composer disappeared".
+
 Arbitrary animations (`animate-[shimmer_…]`, `animate-[blink_…]`) still need their `@keyframes`
 declared in `globals.css` — Tailwind does not invent them from the class name.
 
@@ -166,11 +183,14 @@ declared in `globals.css` — Tailwind does not invent them from the class name.
    the moment you wrap a pane in anything — a tab panel, a flex row — the panes lose their height
    and render stacked on top of each other. Lay `SandpackPreview` / `SandpackCodeEditor` out in
    your own flex containers instead.
-2. **Switch panes with an inline `style={{ display }}`,** not a class and not Radix's `hidden`
-   attribute. Sandpack's CSS-in-JS sets `display` on those subtrees and wins otherwise. Both panes
-   stay mounted deliberately — unmounting tears down and reboots the preview iframe.
+2. **The panes are a split, not tabs** — code (with the file tree) on the left, preview on the
+   right, with a draggable divider whose position is persisted. Both are always mounted; never
+   unmount one, as that tears down and reboots the preview iframe. Build progress is a hairline
+   above the panes plus a status line in the toolbar — deliberately *not* an overlay, because a
+   veil hides code and preview during exactly the stretch you want to watch them.
 3. **The provider wrapper is a flex container,** so the panel's root needs `min-w-0 flex-1` or the
-   preview renders in a narrow strip with dead space beside it.
+   preview renders in a narrow strip with dead space beside it. While dragging the divider, an
+   overlay has to cover the preview or the iframe eats the mouse events.
 
 Theming goes through `src/lib/sandpack-theme.ts`, which is the `globals.css` dark tokens resolved
 to hex. Sandpack does colour maths on some values, so hand it literals, not `var(--brand)`.

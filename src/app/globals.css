@@ -201,6 +201,17 @@
   }
 }
 
+/* Travelling bar for indeterminate progress — the workspace shows build
+   progress as a hairline above the panes rather than covering them. */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
 /* Sheen sweeping across the "Improve with Agent" button. */
 @keyframes shimmer {
   from {

@@ -356,15 +356,19 @@ export function WorkspaceClient({
   return (
     <>
       {/* Mobile blocker — visible only on small screens */}
-      <div className="flex flex-1 md:hidden">
+      <div className="flex min-h-[calc(100dvh-5.5rem)] md:hidden">
         <MobileBlocker />
       </div>
 
       {/* Workspace — visible only on md+ screens.
-          Height comes from the flex chain (html h-full → body → main flex-1),
-          not from subtracting the header offset by hand. The arithmetic version
-          was off by a few pixels and clipped the composer's hint line. */}
-      <div className="hidden min-h-0 flex-1 overflow-hidden bg-background md:flex">
+          This needs a *definite* height: `body` is `min-h-full`, so a `flex-1`
+          here has no resolved container height to size against and the panel
+          grows to fit the code editor, scrolling the whole page. 5.5rem is the
+          `pt-22` the app shell uses to clear the fixed header.
+          The panes below must each carry `min-h-0`, or their default
+          `min-height: auto` refuses to shrink and pushes content out the
+          bottom. */}
+      <div className="hidden h-[calc(100dvh-5.5rem)] overflow-hidden bg-background md:flex">
         <ChatPanel
           isImproving={isImproving}
           messages={messages}

@@ -144,7 +144,7 @@ export function ChatPanel({
   const isBusy = isGenerating || isImproving;
 
   return (
-    <aside className="flex w-[340px] shrink-0 flex-col border-r border-border bg-card/30">
+    <aside className="flex h-full min-h-0 w-[340px] shrink-0 flex-col border-r border-border bg-card/30">
       {/* ── Header ── */}
       <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         <p className="truncate text-[0.8125rem] font-medium tracking-tight text-foreground/90">
@@ -169,7 +169,7 @@ export function ChatPanel({
       {/* ── Transcript ── */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-3 py-4 [&::-webkit-scrollbar]:hidden"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-4 [&::-webkit-scrollbar]:hidden"
       >
         {messages.length === 0 && !isGenerating && (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">

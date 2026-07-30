@@ -4,11 +4,15 @@ import { Agent, createTool } from "@cline/sdk";
 import { z } from "zod";
 
 import { aj } from "@/lib/arcjet";
-import { GEMINI_MODELS, GENERATION_COST } from "@/lib/constants";
+import { GENERATION_COST } from "@/lib/constants";
 import {
-  AllModelsUnavailableError,
+  AllProvidersUnavailableError,
   isTransientLlmMessage,
-} from "@/lib/gemini";
+} from "@/lib/ai/generate";
+import {
+  configuredProviders,
+  type AiProvider,
+} from "@/lib/ai/providers";
 import { db } from "@/lib/prisma";
 import type { FileData } from "@/types/workspace";
 
@@ -169,11 +173,11 @@ export async function POST(request: NextRequest) {
         .map(([path, { code }]) => `// ${path}\n${code}`)
         .join("\n\n---\n\n");
 
-      const buildAgent = (modelId: string) =>
+      const buildAgent = (provider: AiProvider) =>
         new Agent({
-          providerId: "gemini",
-          modelId,
-          apiKey: process.env.GEMINI_API_KEY!,
+          providerId: provider.clineProviderId,
+          modelId: provider.model,
+          apiKey: provider.apiKey()!,
           maxIterations: 8,
           systemPrompt: `You are an expert React developer improving a live browser preview app.
 
@@ -244,8 +248,8 @@ RULES:
         let result: Awaited<ReturnType<Agent["run"]>> | null = null;
         let lastTransientMessage = "";
 
-        for (const modelId of GEMINI_MODELS) {
-          const agent = buildAgent(modelId);
+        for (const provider of configuredProviders()) {
+          const agent = buildAgent(provider);
           activeAgent = agent;
           const unsubscribe = subscribeToAgent(agent);
 
@@ -256,7 +260,9 @@ RULES:
               const message = attempt.error?.message ?? "Agent run failed";
               if (isTransientLlmMessage(message) && !hasAppliedWork) {
                 lastTransientMessage = message;
-                console.warn(`[improve] ${modelId} unavailable: ${message}`);
+                console.warn(
+                  `[improve] ${provider.id} unavailable: ${message}`
+                );
                 continue;
               }
               throw new Error(message);
@@ -270,7 +276,7 @@ RULES:
         }
 
         if (!result) {
-          throw new AllModelsUnavailableError(lastTransientMessage);
+          throw new AllProvidersUnavailableError(lastTransientMessage);
         }
         if (result.status === "aborted") {
           // Client-initiated stop — nothing to save, nothing to charge.

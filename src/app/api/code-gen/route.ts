@@ -3,7 +3,11 @@ import { NextRequest } from "next/server";
 
 import { aj } from "@/lib/arcjet";
 import { GENERATION_COST } from "@/lib/constants";
-import { AllModelsUnavailableError, generateWithFallback } from "@/lib/gemini";
+import {
+  AllProvidersUnavailableError,
+  streamGeneration,
+  type PromptMessage,
+} from "@/lib/ai/generate";
 import { db } from "@/lib/prisma";
 import type { Message, FileData } from "@/types/workspace";
 
@@ -82,7 +86,7 @@ RULES:
  * generic in production and is spelled out in development.
  */
 function describeStreamError(error: unknown): string {
-  if (error instanceof AllModelsUnavailableError) return error.message;
+  if (error instanceof AllProvidersUnavailableError) return error.message;
 
   if (process.env.NODE_ENV !== "production" && error instanceof Error) {
     return `${error.message} (shown because NODE_ENV is not production)`;
@@ -99,35 +103,37 @@ function parseDataUrl(
   return { mimeType: match[1], data: match[2] };
 }
 
-function buildContents(messages: Message[], fileData: FileData | null) {
+/** Provider-neutral prompt; each adapter renders it in its own wire format. */
+function buildPrompt(
+  messages: Message[],
+  fileData: FileData | null
+): PromptMessage[] {
   const trimmed = trimHistory(messages);
 
-  return trimmed.map((msg, idx) => {
-    const role = msg.role === "assistant" ? "model" : "user";
-
+  return trimmed.map((msg, idx): PromptMessage => {
     if (msg.role !== "user") {
-      return { role, parts: [{ text: msg.content }] };
+      return { role: "assistant", text: msg.content };
     }
 
-    const parts: object[] = [];
     let text = msg.content;
+
+    // Attachments arrive as data URLs (ChatPanel encodes them client-side).
+    // Decoded to raw base64 here so adapters can send real image bytes rather
+    // than a giant blob pasted into the prompt text.
     const image = msg.imageUrl ? parseDataUrl(msg.imageUrl) : null;
     if (image) {
-      parts.push({ inlineData: image });
       text = `[The user attached the image above as a design reference.]\n\n${text}`;
     } else if (msg.imageUrl) {
       text = `[The user attached an image, available at this URL — use it directly in the generated app where relevant: ${msg.imageUrl}]\n\n${text}`;
     }
 
-    const isLast = idx === trimmed.length - 1;
-    if (isLast && fileData) {
+    if (idx === trimmed.length - 1 && fileData) {
       text +=
         "\n\nCurrent project files for context:\n" +
         JSON.stringify(fileData, null, 2);
     }
 
-    parts.push({ text });
-    return { role, parts };
+    return { role: "user", text, ...(image ? { image } : {}) };
   });
 }
 
@@ -213,48 +219,43 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        const contents = buildContents(messages, fileData);
-
-        const { stream: geminiStream } = await generateWithFallback({
-          contents,
-          config: {
-            systemInstruction: SYSTEM_PROMPT,
-            temperature: 0.7,
-            responseMimeType: "application/json",
-            thinkingConfig: {
-              includeThoughts: true,
+        const modelStream = streamGeneration(
+          {
+            system: SYSTEM_PROMPT,
+            messages: buildPrompt(messages, fileData),
+          },
+          {
+            onAttempt: ({ provider, model }) => {
+              console.log(`[code-gen] trying ${provider.id}/${model}`);
             },
-          },
-          onFallback: ({ nextModel }) => {
-            if (nextModel) {
-              enqueue(
-                sseEvent("status", { message: "Model busy — switching…" })
-              );
-            }
-          },
-        });
-
-        let accumulated = "";
-        let lastEmitTime = 0;
-
-        for await (const chunk of geminiStream) {
-          const parts = chunk.candidates?.[0]?.content?.parts ?? [];
-
-          for (const part of parts) {
-            if (!part.text) continue;
-
-            if (part.thought) {
-              // Extract just the short label — not the full wall of text
-              const now = Date.now();
-              if (now - lastEmitTime > 600) {
-                const label = extractThoughtLabel(part.text);
-                if (label) {
-                  enqueue(sseEvent("status", { message: label }));
-                  lastEmitTime = now;
-                }
+            onFallback: ({ to }) => {
+              if (to) {
+                enqueue(
+                  sseEvent("status", {
+                    message: `Provider busy — trying ${to}…`,
+                  })
+                );
               }
-            } else {
-              accumulated += part.text;
+            },
+          }
+        );
+
+        let accumulated = ""; // the JSON document
+        let lastEmitTime = 0; // throttles reasoning labels
+
+        for await (const chunk of modelStream) {
+          if (chunk.kind === "output") {
+            accumulated += chunk.text;
+            continue;
+          }
+
+          // Reasoning — surface a short label, not the whole wall of text.
+          const now = Date.now();
+          if (now - lastEmitTime > 600) {
+            const label = extractThoughtLabel(chunk.text);
+            if (label) {
+              enqueue(sseEvent("status", { message: label }));
+              lastEmitTime = now;
             }
           }
         }
