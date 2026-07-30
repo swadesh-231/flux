@@ -4,12 +4,10 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { dark } from "@clerk/ui/themes";
 
 import "./globals.css";
-import Footer from "@/components/base/Footer";
-import Header from "@/components/base/Header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 import { SITE } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
@@ -21,7 +19,10 @@ const playfairDisplay = Playfair_Display({
 const notoSans = Noto_Sans({ subsets: ["latin"], variable: "--font-sans" });
 
 /** Used for micro-labels, figures, and code. */
-const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -38,12 +39,17 @@ export const metadata: Metadata = {
   },
 };
 
-
 export const viewport: Viewport = {
   colorScheme: "dark",
   themeColor: "#0a0a0a",
 };
 
+/**
+ * Providers only. Page chrome — header, footer, and the offset that clears the
+ * fixed header — belongs to the route-group layouts, because the marketing
+ * surface, the auth pages, and the full-height workspace each want a different
+ * one.
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -68,9 +74,8 @@ export default function RootLayout({
             forcedTheme="dark"
             disableTransitionOnChange
           >
-            <Header />
-            <main className="flex-1 pt-22">{children}</main>
-            <Footer />
+            {children}
+            <Toaster position="top-center" />
           </ThemeProvider>
         </body>
       </html>

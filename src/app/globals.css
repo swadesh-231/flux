@@ -182,6 +182,35 @@
   }
 }
 
+/* ─ Workspace ───────────────────────────────────────────────────────────────
+   Used by the arbitrary animations in ChatPanel and CodePanel
+   (`animate-[blink_…]`, `animate-[shimmer_…]`). Arbitrary animation values
+   still need their keyframes declared somewhere — Tailwind does not invent
+   them — so without these the caret sits still and the Improve button's sheen
+   never travels.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Caret at the end of streaming agent text. */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Sheen sweeping across the "Improve with Agent" button. */
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
 /* A soft gold bloom rising off the horizon, behind the stars. Alphas are baked
    into `--bloom-*` per theme rather than mixed at runtime. */
 @utility hero-bloom {

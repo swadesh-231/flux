@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { ArrowRight } from "lucide-react";
 
+import { NewProjectDialog } from "@/components/project/NewProjectDialog";
 import { Button } from "@/components/ui/button";
 import { NAV_LINKS, SITE } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -112,12 +113,14 @@ const Header = () => {
           </Show>
 
           <Show when="signed-in">
-            <Button asChild size="sm" className="rounded-full">
-              <Link href="/workspace">
+            {/* Opens the naming dialog rather than dropping straight into an
+                untitled workspace. */}
+            <NewProjectDialog>
+              <Button size="sm" className="rounded-full">
                 New project
                 <ArrowRight data-icon="inline-end" aria-hidden />
-              </Link>
-            </Button>
+              </Button>
+            </NewProjectDialog>
 
             {/* Separates account from navigation — the pause reads as structure. */}
             <span aria-hidden className="hidden h-5 w-px bg-border sm:block" />

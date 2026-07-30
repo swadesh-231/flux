@@ -13,10 +13,37 @@ export const NAV_LINKS = [
   { href: "#pricing", label: "Pricing" },
 ] as const;
 
+/** Credits burned by one `/api/code-gen` or `/api/improve` run. */
 export const GENERATION_COST = 1;
 
-
+/** Below this the composer is disabled and the upgrade prompt takes over. */
 export const MIN_GENERATIONS_REQUIRED = 1;
+
+/**
+ * The models behind both generation routes, in preference order. Each must be
+ * an id `@google/genai` knows and one `@cline/llms` can reach through its
+ * `gemini` provider.
+ *
+ * More than one, because a single Gemini model can return 503 UNAVAILABLE for
+ * long stretches when it is in heavy demand — which takes the whole product
+ * down if there is nothing to fall back to. `generateWithFallback` walks this
+ * list; put the model you actually want first.
+ */
+export const GEMINI_MODELS = [
+  "gemini-3.5-flash",
+  "gemini-3-flash-preview",
+  "gemini-2.5-flash",
+] as const;
+
+/** Preferred model. Used where a single id is required (the Cline agent). */
+export const GEMINI_MODEL = GEMINI_MODELS[0];
+
+/**
+ * Attached images are inlined as `data:` URLs — into the prompt, and into the
+ * `messages` JSON column. 4 MB of source file is roughly 5.3 MB base64, which
+ * is comfortable for both.
+ */
+export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 type PlanDefinition = {
   readonly label: string;
@@ -34,7 +61,7 @@ export const PLANS = {
     label: "Free",
     description: "Enough room to find out whether this works for you.",
     price: 0,
-    generations: 20,
+    generations: 10,
     clerkPlanId: null,
     featured: false,
     active: true,
@@ -48,9 +75,9 @@ export const PLANS = {
   starter: {
     label: "Starter",
     description: "For the side project that turned serious.",
-    price: 12,
-    generations: 250,
-    clerkPlanId: "cplan_3DvxGsOeYA5bpJzGWPi8o7wScRD",
+    price: 20,
+    generations: 50,
+    clerkPlanId: "cplan_3HDhkYM01GaCFW70b8wgpSvPO87",
     featured: true,
     active: true,
     perks: [
@@ -63,9 +90,9 @@ export const PLANS = {
   pro: {
     label: "Pro",
     description: "For people who ship every day.",
-    price: 29,
-    generations: 1000,
-    clerkPlanId: "cplan_3DvxTfywwB0NyQ1iqANclgNqlq8",
+    price: 50,
+    generations: 100,
+    clerkPlanId: "cplan_3HDi3EyjYxvr4idgu8IsGywMVUv",
     featured: false,
     active: true,
     perks: [
@@ -88,6 +115,14 @@ export const PLAN_LIST: readonly (PlanDefinition & { readonly key: PlanKey })[] 
   PLAN_KEYS.map((key) => ({ key, ...PLANS[key] }));
 
 export const planRank = (key: PlanKey) => PLAN_KEYS.indexOf(key);
+
+/** `User.plan` is a plain string column, so narrow it before indexing `PLANS`. */
+export const isPlanKey = (value: string): value is PlanKey =>
+  Object.prototype.hasOwnProperty.call(PLANS, value);
+
+/** Monthly credit allowance for a plan. Unknown values fall back to free. */
+export const planCredits = (value: string): number =>
+  PLANS[isPlanKey(value) ? value : DEFAULT_PLAN_KEY].generations;
 
 export const planFeatures = (plan: PlanDefinition) => [
   `${plan.generations.toLocaleString("en-US")} generations per month`,
