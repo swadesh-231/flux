@@ -7,10 +7,23 @@ export const SITE = {
   author: "Swadesh",
 } as const;
 
+/**
+ * Marketing nav. Rooted at `/` rather than bare fragments, so they still work
+ * from the auth pages — a bare `#pricing` on `/sign-in` scrolls nowhere.
+ */
 export const NAV_LINKS = [
-  { href: "#features", label: "Features" },
-  { href: "#workflow", label: "Workflow" },
-  { href: "#pricing", label: "Pricing" },
+  { href: "/#features", label: "Features" },
+  { href: "/#workflow", label: "Workflow" },
+  { href: "/#pricing", label: "Pricing" },
+] as const;
+
+/**
+ * The signed-in app's own nav. Rendered beside the logo by `AppHeader`, never
+ * in the centre track — the middle of an app bar reads as marketing chrome.
+ */
+export const APP_NAV_LINKS = [
+  { href: "/projects", label: "Projects" },
+  { href: "/billing", label: "Billing" },
 ] as const;
 
 /** Credits burned by one `/api/code-gen` or `/api/improve` run. */

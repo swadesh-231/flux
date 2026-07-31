@@ -102,7 +102,7 @@ function ChatPanel() {
 
 function KanbanSkeleton() {
   return (
-    <div className="flex flex-1 gap-3 overflow-hidden p-5">
+    <div className="flex flex-1 gap-2 overflow-hidden p-4 sm:gap-3 sm:p-5">
       {COLUMNS.map((column) => (
         <div key={column.name} className="flex w-1/3 flex-col gap-2">
           <div className="mb-1 flex items-center justify-between gap-2">
@@ -162,7 +162,9 @@ export function WorkspacePreview() {
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-[0_40px_120px_-60px_rgb(0_0_0/0.9)] ring-1 ring-foreground/[0.03]">
         <WindowChrome />
 
-        <div className="flex h-[26rem]">
+        {/* Shorter on a phone, where the chat column is hidden anyway and
+            26rem of skeleton would swallow the whole viewport. */}
+        <div className="flex h-[20rem] sm:h-[26rem]">
           <ChatPanel />
           <PreviewPanel />
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   SandpackProvider,
   SandpackCodeEditor,
@@ -79,6 +79,12 @@ const BASE_DEPENDENCIES: Record<string, string> = {
 /** Only one is on screen at a time; Preview is the default. */
 type Pane = "preview" | "code";
 
+/** How long to wait for the bundler iframe before re-fetching it. */
+const BUNDLER_TIMEOUT_MS = 20_000;
+
+/** Re-fetches of the bundler before giving up and showing Sandpack's message. */
+const MAX_BUNDLER_RETRIES = 2;
+
 interface CodePanelProps {
   fileData: FileData | null;
   isGenerating: boolean;
@@ -103,6 +109,7 @@ function SandpackInner({
   statusLog,
   onImprove,
   onFixError,
+  onBundlerTimeout,
   fileData,
   appTitle,
   isImproving,
@@ -112,21 +119,67 @@ function SandpackInner({
   statusLog: StatusStep[];
   onImprove: (userRequest: string) => Promise<void>;
   onFixError: (error: string) => Promise<void>;
+  /** Stable, or the effect below re-fires on every render. */
+  onBundlerTimeout: () => void;
   fileData: FileData | null;
   appTitle: string | null;
   isImproving: boolean;
   isProUser: boolean;
 }) {
   const { sandpack, listen } = useSandpack();
+
+  // Watchdog on the bundler, re-armed per build.
+  //
+  // Everything here depends on `*-sandpack.codesandbox.io`, which fails in two
+  // different ways: the iframe fetch 503s, or it connects and then never
+  // finishes bundling. Sandpack's own `status: "timeout"` catches only the
+  // first — it clears the timer the moment the client connects — and it retries
+  // neither. So key off the thing that actually matters: a compile that never
+  // reports back. Reaching the deadline hands control to CodePanel, which
+  // rebuilds the client. That is what reloading the page did, minus losing the
+  // transcript.
+  // `listen` is a plain function inside SandpackProvider, not a useCallback, so
+  // it is a new identity on every render. Held in a ref rather than listed as a
+  // dependency below — as a dependency it would re-arm the timer on every
+  // render, and a watchdog that is permanently reset never barks.
+  const listenRef = useRef(listen);
+  useEffect(() => {
+    listenRef.current = listen;
+  });
+
+  useEffect(() => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (!settled) onBundlerTimeout();
+    }, BUNDLER_TIMEOUT_MS);
+
+    const unsubscribe = listenRef.current((msg) => {
+      if (msg.type === "success" || msg.type === "done") {
+        settled = true;
+        window.clearTimeout(timer);
+      }
+    });
+
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [fileData, onBundlerTimeout]);
+
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [improveInput, setImproveInput] = useState("");
   const [showImproveInput, setShowImproveInput] = useState(false);
   const [activePane, setActivePane] = useState<Pane>("preview");
 
-  // Push file content updates into Sandpack without remounting.
-  // SandpackProvider's key only changes when the file *path set* changes, so
-  // this is what carries edited contents through.
+  // Push a finished build into the live client.
+  //
+  // SandpackProvider also reacts to the `files` prop on its own, but that path
+  // alone is not dependable: it hands the client an update only
+  // `if (client.status === "done")` and never retries, so anything that lands
+  // while the iframe is busy is dropped silently. Calling `updateFile` sets
+  // `shouldUpdatePreview` and re-arms the recompile, which is a second, cheaper
+  // chance at delivery than tearing down the bundler and re-fetching it.
   const prevFilesRef = useRef<Record<string, { code: string }>>({});
   useEffect(() => {
     if (!fileData?.files) return;
@@ -562,28 +615,87 @@ export function CodePanel({
   isImproving,
   isProUser,
 }: CodePanelProps) {
-  const files = fileData?.files ?? PLACEHOLDER_FILES;
-  const dependencies = {
-    ...BASE_DEPENDENCIES,
-    ...(fileData?.dependencies ?? {}),
-  };
+  // Memoised because SandpackProvider watches these by *identity*
+  // (`useFiles` re-runs on `[files, customSetup, template]`). Rebuilding either
+  // object inline meant every CodePanel render — and `statusLog` changes many
+  // times per generation — reset Sandpack's file state from props and re-armed
+  // its 500ms recompile debounce, cancelling the pending one each time. The
+  // preview could sit through a whole build never being told to recompile.
+  const files = useMemo(
+    () => fileData?.files ?? PLACEHOLDER_FILES,
+    [fileData?.files],
+  );
 
-  // Key on the file *path set* only — not contents. Content changes go through
-  // sandpack.updateFile() inside SandpackInner, so the preview survives edits.
-  const filePathKey = Object.keys(files).sort().join("|");
+  const customSetup = useMemo(
+    () => ({
+      dependencies: { ...BASE_DEPENDENCIES, ...(fileData?.dependencies ?? {}) },
+    }),
+    [fileData?.dependencies],
+  );
+
+  // Remount only when the *dependency set* changes — never for code changes.
+  //
+  // This was keyed on the file path set, which meant the first generation
+  // (almost always moving off PLACEHOLDER_FILES' single `/App.js`) tore the
+  // provider down. A remount builds a new bundler iframe, re-fetched from
+  // `*-sandpack.codesandbox.io`, and that host 503s often enough to matter; a
+  // failed fetch leaves Sandpack on its loading overlay with no retry. That is
+  // the "I have to refresh to see the output" symptom — the refresh being
+  // nothing more than a second attempt at the CDN.
+  //
+  // Code changes need no remount: SandpackProvider's `useFiles` watches
+  // `[files, customSetup, template]` and `updateFile` pushes into the live
+  // client. New *packages* are the one thing it cannot do — dependencies reach
+  // the bundler as a generated `/package.json`, but a client that has already
+  // installed will not install again, so the app renders against the old
+  // module set. Keying here means we pay for a fresh bundler exactly when a
+  // build introduces a package, and not on every prompt.
+  const dependencyKey = useMemo(
+    () =>
+      Object.entries(customSetup.dependencies)
+        .map(([name, version]) => `${name}@${version}`)
+        .sort()
+        .join("|"),
+    [customSetup],
+  );
+
+  // Bumped when the bundler fails to come up, which remounts the provider and
+  // re-fetches it. Capped, so a genuine outage settles on Sandpack's own
+  // timeout message instead of reloading forever.
+  const [attempt, setAttempt] = useState(0);
+  const handleBundlerTimeout = useCallback(() => {
+    setAttempt((n) => (n < MAX_BUNDLER_RETRIES ? n + 1 : n));
+  }, []);
+
+  // A new dependency set is a new boot and deserves its own retry budget.
+  const [seenDependencyKey, setSeenDependencyKey] = useState(dependencyKey);
+  if (dependencyKey !== seenDependencyKey) {
+    setSeenDependencyKey(dependencyKey);
+    setAttempt(0);
+  }
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <SandpackProvider
-        key={filePathKey}
+        key={`${dependencyKey}#${attempt}`}
         template="react"
         theme={fluxSandpackTheme}
         files={files}
-        customSetup={{ dependencies }}
+        customSetup={customSetup}
         options={{
           externalResources: ["https://cdn.tailwindcss.com"],
-          recompileMode: "delayed",
-          recompileDelay: 500,
+          // Immediate, not delayed: a build lands once, and the 500ms debounce
+          // was a window in which an unrelated re-render could cancel it.
+          recompileMode: "immediate",
+          // The bundler starts as soon as the panel mounts rather than waiting
+          // on an IntersectionObserver — the preview is on screen from the
+          // first paint, and a boot in flight before the first build finishes
+          // is a boot that is not on the critical path.
+          initMode: "immediate",
+          // Sandpack's own default is 40s. Halved, because this is now a retry
+          // trigger rather than a message the user reads: 40 seconds of blank
+          // preview is already long past the point of reaching for reload.
+          bundlerTimeOut: BUNDLER_TIMEOUT_MS,
         }}
         style={{ height: "100%", minHeight: 0, display: "flex" }}
       >
@@ -592,6 +704,7 @@ export function CodePanel({
           statusLog={statusLog}
           onImprove={onImprove}
           onFixError={onFixError}
+          onBundlerTimeout={handleBundlerTimeout}
           fileData={fileData}
           appTitle={appTitle}
           isImproving={isImproving}

@@ -16,8 +16,13 @@ const STAR_COLOUR = "#f6efe1";
 
 export function Hero() {
   return (
+    // The layout offsets `<main>` by `pt-22` to clear the fixed header; the
+    // hero cancels that and re-applies it as padding, so the sky and the
+    // starfield run all the way to the top of the page and sit behind the
+    // frosted pane instead of starting 5.5rem below it. Content lands in the
+    // same place either way.
     <StarsBackground
-      className="hero-sky isolate"
+      className="hero-sky isolate -mt-22 pt-22"
       starColor={STAR_COLOUR}
       pointerEvents={false}
     >

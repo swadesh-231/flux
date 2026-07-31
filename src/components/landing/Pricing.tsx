@@ -85,7 +85,14 @@ function PlanCard({
   return (
     <div
       className={cn(
-        "relative flex flex-col rounded-2xl border p-7 transition-colors duration-300",
+        "relative flex flex-col rounded-2xl border p-6 transition-colors duration-300 sm:p-7",
+        // Five in-flow children mapped onto the parent's five row tracks, so
+        // the price, the feature list, and the button sit on the same line in
+        // every card however long the description above them runs. Without it
+        // a two-line description knocks one card's price out of step with the
+        // others. The absolutely-positioned hairline below is out of flow and
+        // does not claim a track.
+        "md:row-span-5 md:grid md:grid-rows-subgrid",
         plan.featured
           ? "border-brand/25 bg-brand/[0.045]"
           : "border-border bg-card/40 hover:border-foreground/15",
@@ -96,7 +103,7 @@ function PlanCard({
       {plan.featured ? (
         <span
           aria-hidden
-          className="absolute inset-x-7 top-0 h-px bg-linear-to-r from-transparent via-brand/60 to-transparent"
+          className="absolute inset-x-6 top-0 h-px bg-linear-to-r from-transparent via-brand/60 to-transparent sm:inset-x-7"
         />
       ) : null}
 
@@ -170,7 +177,10 @@ export async function Pricing() {
         lead="Every plan writes the same code. The larger ones just let you ask more often."
       />
 
-      <div className="mt-16 grid gap-4 sm:grid-cols-3">
+      {/* Three columns only from `md`. At `sm` they were ~140px of usable
+          width each, which broke every price and button onto its own line.
+          The row tracks are what the cards' subgrid aligns against. */}
+      <div className="mt-16 grid gap-4 md:grid-cols-3 md:grid-rows-[auto_auto_auto_1fr_auto]">
         {PLAN_LIST.filter((plan) => plan.active).map((plan) => (
           <PlanCard key={plan.key} plan={plan} activePlanKey={activePlanKey} />
         ))}

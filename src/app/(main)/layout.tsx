@@ -1,10 +1,11 @@
 import { auth } from "@clerk/nextjs/server";
 
-import Header from "@/components/base/Header";
+import AppHeader from "@/components/base/AppHeader";
 import { checkUser } from "@/lib/checkUser";
+import { DEFAULT_PLAN_KEY } from "@/lib/constants";
 
 /**
- * The signed-in app shell: header, no marketing footer.
+ * The signed-in app shell: its own header, no marketing footer.
  *
  * The auth gate lives here rather than in the proxy — Clerk 7 deprecated
  * `createRouteMatcher` precisely because path matching can drift from how
@@ -13,7 +14,9 @@ import { checkUser } from "@/lib/checkUser";
  *
  * This is also where Clerk's subscription state is reconciled onto the local
  * `User` row: every page and server action underneath reads `credits` and
- * `plan` from that row, so it has to exist before they run.
+ * `plan` from that row, so it has to exist before they run. The row is read
+ * here rather than fetched a second time for the header — `checkUser` is
+ * request-cached, so the page below can call it again for free.
  */
 export default async function AppLayout({
   children,
@@ -21,11 +24,14 @@ export default async function AppLayout({
   children: React.ReactNode;
 }>) {
   await auth.protect();
-  await checkUser();
+  const user = await checkUser();
 
   return (
     <>
-      <Header />
+      <AppHeader
+        credits={user?.credits ?? 0}
+        plan={user?.plan ?? DEFAULT_PLAN_KEY}
+      />
       {/* pt-22 clears the fixed header: pt-4 inset + h-14 pane + gap. */}
       <main className="flex flex-1 flex-col pt-22">{children}</main>
     </>

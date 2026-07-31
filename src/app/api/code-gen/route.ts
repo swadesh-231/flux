@@ -6,6 +6,7 @@ import { GENERATION_COST } from "@/lib/constants";
 import {
   AllProvidersUnavailableError,
   generateJson,
+  MissingProviderError,
   TruncatedResponseError,
   type PromptMessage,
 } from "@/lib/ai/generate";
@@ -89,6 +90,14 @@ RULES:
  */
 function describeStreamError(error: unknown): string {
   if (error instanceof AllProvidersUnavailableError) return error.message;
+
+  // A deployment problem, not a capacity one — retrying will not clear it, so
+  // don't dress it up as "try again in a moment".
+  if (error instanceof MissingProviderError) {
+    return process.env.NODE_ENV === "production"
+      ? "This deployment is missing the API key for that step. Please contact support."
+      : error.message;
+  }
 
   if (error instanceof TruncatedResponseError) {
     return "That app was too large to finish in one response. Try asking for something smaller, or build it in steps.";
@@ -236,6 +245,7 @@ export async function POST(request: NextRequest) {
 
       try {
         let lastEmitTime = 0; // throttles reasoning labels
+        let announcedProvider: string | null = null;
 
         const { value: parsed, provider } = await generateJson({
           role: intentRole,
@@ -265,6 +275,23 @@ export async function POST(request: NextRequest) {
           events: {
             onAttempt: ({ provider: p, model }) => {
               console.log(`[code-gen] ${intentRole}: trying ${p.id}/${model}`);
+
+              // Name the model that is doing the work, once, at the top of the
+              // run. The two jobs deliberately use different providers, so
+              // "Building with OpenAI" / "Repairing with Gemini" is the user's
+              // only way to see that routing happen. Later providers in the
+              // chain are announced by onFallback instead, which says *why*
+              // they were reached.
+              if (announcedProvider !== null) return;
+              announcedProvider = p.id;
+              enqueue(
+                sseEvent("status", {
+                  message:
+                    intentRole === "fix"
+                      ? `Repairing with ${p.label}…`
+                      : `Building with ${p.label}…`,
+                })
+              );
             },
             onFallback: ({ to }) => {
               if (to) {

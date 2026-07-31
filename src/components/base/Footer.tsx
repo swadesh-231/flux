@@ -1,7 +1,8 @@
 import Link from "next/link";
 
-import { Eyebrow } from "@/components/reusables";
+import { Eyebrow, SECTION_CONTAINER } from "@/components/reusables";
 import { NAV_LINKS, SITE } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 
 import Logo from "./Logo";
 
@@ -19,7 +20,7 @@ export function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="relative overflow-hidden px-6 pb-0 pt-16">
+    <footer className="relative overflow-hidden pb-0 pt-16">
       {/* Lit top edge in place of a border, matching the header pane. */}
       <span
         aria-hidden
@@ -32,7 +33,9 @@ export function Footer() {
         className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-[radial-gradient(70%_100%_at_50%_100%,color-mix(in_oklab,var(--brand)_7%,transparent),transparent)]"
       />
 
-      <div className="relative mx-auto max-w-6xl">
+      {/* Same track as every Section, so the footer's brand block starts on the
+          column the page has used all the way down. */}
+      <div className={cn("relative", SECTION_CONTAINER)}>
         <div className="grid gap-12 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-16">
           <div className="max-w-sm">
             <Link

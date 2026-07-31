@@ -125,7 +125,14 @@ export function WorkspaceClient({
   const handleGenerate = useCallback(
     async (prompt: string, imageUrl?: string, intent: "build" | "fix" = "build") => {
       if (isGenerating) return;
-      if (credits < MIN_GENERATIONS_REQUIRED) return;
+
+      // The composer disables itself when credits run out, but "Fix it" on the
+      // preview error banner is a separate entry point — without this the
+      // button just does nothing, which reads as the click not registering.
+      if (credits < MIN_GENERATIONS_REQUIRED) {
+        toast.error("You're out of credits. Upgrade to keep building.");
+        return;
+      }
 
       const userMessage: Message = {
         role: "user",

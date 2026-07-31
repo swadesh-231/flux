@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import {
   GEMINI_FALLBACK_MODELS,
   providersForRole,
+  requiredEnvForRole,
   type AiProvider,
   type ProviderRole,
 } from "./providers";
@@ -38,12 +39,39 @@ export interface GenerationRequest {
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 export class AllProvidersUnavailableError extends Error {
-  constructor(detail?: string) {
+  /**
+   * `tried` names the chain that actually ran, which matters now that the two
+   * roles use different providers: telling someone "every provider is busy"
+   * when a build only ever asks OpenAI sends them looking in the wrong place.
+   */
+  constructor(detail?: string, tried?: string[]) {
+    const subject =
+      tried && tried.length === 1
+        ? `${tried[0]} is`
+        : tried && tried.length > 1
+          ? `Both ${tried.slice(0, -1).join(", ")} and ${tried.at(-1)} are`
+          : "Every model provider is";
+
     super(
-      "Every model provider is busy or unreachable right now. This is upstream capacity, not your prompt — please try again in a moment." +
+      `${subject} busy or unreachable right now. This is upstream capacity, not your prompt — please try again in a moment.` +
         (detail ? ` (last error: ${detail})` : ""),
     );
     this.name = "AllProvidersUnavailableError";
+  }
+}
+
+/**
+ * The chain for this job has no key configured. Distinct from
+ * `AllProvidersUnavailableError`: nothing was tried, and retrying will not
+ * help until the environment is fixed.
+ */
+export class MissingProviderError extends Error {
+  constructor(readonly role: ProviderRole) {
+    const keys = requiredEnvForRole(role);
+    super(
+      `No provider is configured for ${role}. Set ${keys.join(" or ")}.`,
+    );
+    this.name = "MissingProviderError";
   }
 }
 
@@ -239,10 +267,10 @@ export async function generateJson<T>({
 }): Promise<{ value: T; provider: AiProvider; model: string }> {
   const providers = providersForRole(role);
 
+  // Each role has its own chain, so "nothing configured" is per-role: a
+  // machine with only GEMINI_API_KEY set can still fix, but cannot build.
   if (providers.length === 0) {
-    throw new Error(
-      "No AI provider is configured. Set OPEN_AI_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY.",
-    );
+    throw new MissingProviderError(role);
   }
 
   let lastError: unknown;
@@ -296,8 +324,14 @@ export async function generateJson<T>({
     });
   }
 
-  console.error("[ai] every provider failed; last error:", lastError);
+  console.error(
+    `[ai] ${role}: every provider failed (${providers
+      .map((p) => p.id)
+      .join(", ")}); last error:`,
+    lastError,
+  );
   throw new AllProvidersUnavailableError(
     lastError instanceof Error ? lastError.message.slice(0, 120) : undefined,
+    providers.map((provider) => provider.label),
   );
 }

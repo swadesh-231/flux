@@ -26,15 +26,25 @@ a generation and renders the result in Sandpack.
 **Route groups own the page chrome, not the root layout.** `src/app/layout.tsx` is providers only
 (Clerk, theme, `Toaster`). Each group supplies its own:
 
-- `(marketing)/` — the landing page. Header + `<main className="pt-22">` + Footer.
-- `(auth)/` — Clerk's `<SignIn>` / `<SignUp>` catch-all routes. Header + centred column.
-- `(main)/` — the signed-in app (`/workspace`, `/projects`, `/billing`). Header, no Footer. Calls
-  `auth.protect()` and then `checkUser()`, so everything underneath can assume a local `User` row.
+- `(marketing)/` — the landing page. `Header` + `<main className="pt-22">` + Footer.
+- `(auth)/` — Clerk's `<SignIn>` / `<SignUp>` catch-all routes. `Header` + centred column.
+- `(main)/` — the signed-in app (`/workspace`, `/projects`, `/billing`). **`AppHeader`**, no Footer.
+  Calls `auth.protect()` and then `checkUser()`, so everything underneath can assume a local `User`
+  row — and passes that row's `credits`/`plan` straight into the header.
 
 Adding a route means picking a group; dropping one into `src/app/` directly gets no header at all.
 
 Signing in or up lands on **`/projects`** via `NEXT_PUBLIC_CLERK_SIGN_{IN,UP}_FALLBACK_REDIRECT_URL`.
-FALLBACK, not FORCE — a deep link opened while signed out still returns you there afterwards.
+FALLBACK, not FORCE — a deep link opened while signed out still returns you there afterwards. That
+page is the app's home, not a list bolted onto the marketing site: a stats strip over `getUserProjects()`
+plus `ProjectGallery`, which filters client-side over the already-loaded set.
+
+**Two headers, one shell.** `Header` is the marketing bar (anchors centred, Clerk auth actions
+right); `AppHeader` is the signed-in bar (nav *beside the logo*, credits pill + New project + avatar
+right, centre deliberately empty). Both wrap `HeaderShell`, so they share its geometry and the
+workspace's `h-[calc(100dvh-5.5rem)]` keeps working. Do not put app destinations in the marketing
+header's centre track — a signed-in visitor there gets one "Open app" button in the right cluster.
+`NAV_LINKS` are rooted (`/#pricing`, not `#pricing`) so they still resolve from `/sign-in`.
 
 ## Next.js 16 — read the bundled docs
 
@@ -99,13 +109,24 @@ through `@prisma/adapter-pg` + `pg` (Neon), driven by `DATABASE_URL`.
   tool. Pro-only. `next.config.ts` lists the `@cline/*` packages in `serverExternalPackages`.
 
 **Three providers, two chains — `src/lib/ai/`.** `providers.ts` defines the roles; every job walks
-its chain until one answers, skipping providers with no key set:
+its chain until one answers, skipping providers with no key set. The chains are **exclusive, not
+just ordered** — neither job ever falls into the other's providers:
 
-- `build` — writing a whole app. **OpenAI leads**, then Gemini, then Groq. OpenAI is the most
-  reliable at returning one large, well-formed JSON document.
-- `fix` — repairing a broken preview or applying an improvement. **Gemini leads**, then Groq, then
-  OpenAI. `/api/code-gen` picks the chain from the request's `intent`; `/api/improve` is always
-  `fix`.
+- `build` — writing a whole app. **OpenAI only.** It is the most reliable at returning one large,
+  well-formed JSON document, and a whole app is exactly the response a weaker model truncates.
+- `fix` — repairing a broken preview (the "Fix it" button on the error banner) or applying an
+  improvement. **Gemini, then Groq.** `/api/code-gen` picks the chain from the request's `intent`;
+  `/api/improve` is always `fix`.
+
+The trade is deliberate: an OpenAI outage stops new builds outright rather than silently handing
+back a weaker app that still cost a credit, while fixes keep working because they never touch
+OpenAI. Widening `PROVIDER_ROLES` is the only change needed to reinstate cross-role fallback —
+nothing else reads provider order. Because the chains differ per job, "nothing configured" is
+per-role too: `MissingProviderError` names just the keys that role needs, and
+`AllProvidersUnavailableError` names the providers actually tried rather than claiming all three
+are down. `/api/code-gen` announces the serving provider once as a `status` frame ("Building with
+OpenAI…" / "Repairing with Gemini…"), which is the user's only visible evidence of the routing —
+later providers are announced by `onFallback` instead, which conveys that a switch happened.
 
 **`generateJson` buffers rather than streams the result, and that is deliberate.** The response is
 only usable if it parses, so a provider returning a truncated or shapeless document is treated
@@ -160,22 +181,33 @@ A second registry, `@animate-ui` (`https://animate-ui.com/r/{name}.json`), suppl
 
 **Component layout:**
 - `src/components/ui/` — shadcn primitives, regenerable; avoid hand-editing.
-- `src/components/base/` — app chrome. `Header.tsx` is a server component; the scroll behaviour is
-  isolated in the `"use client"` `HeaderShell.tsx`, which exposes state as `data-state="condensed|top"`
-  on a `group/header`. Descendants animate by reacting to
+- `src/components/base/` — app chrome. `Header.tsx` and `AppHeader.tsx` are both server components;
+  the scroll behaviour is isolated in the `"use client"` `HeaderShell.tsx`, which exposes state as
+  `data-state="condensed|top"` on a `group/header`. Descendants animate by reacting to
   `group-data-[state=condensed]/header:…` rather than by becoming client components themselves —
-  preserve that split when adding to the header.
+  preserve that split when adding to the header. The one exception is `AppNav.tsx`, which needs
+  `usePathname` for the current-page highlight; keep it that small.
 - `src/components/reusables.tsx` — typography primitives: `Section`, `Eyebrow`, `Accent`, `Display`,
   `SectionHeader`. **One accent only — the brand gold in `--brand`.** `Accent` is the gold gradient
   phrase; use it instead of re-inlining the gradient classes, and don't introduce a second accent
   hue (an earlier pass had blue and violet scattered through the workspace).
+
+  `Section` holds its gutter **inside** the `max-w-6xl` track (`SECTION_CONTAINER`), not outside it,
+  and that is what aligns the page with the header: the header pane is also `max-w-6xl` and insets
+  its nav by the same `px-6`, so at full width the logo sits directly above the first character of
+  every section. Padding from the outside instead put the whole page 1.5rem left of the wordmark.
+  Any surface that can't use `Section` — the footer, `/projects`, `/billing` — aligns to the same
+  track by hand. Section padding is also *half* the gap you see, since two stacked sections each
+  contribute one edge; `py-16 sm:py-24` is already 128/192px between bands.
 - `src/components/project/` — the workspace surface. File names match their exported component.
 - `src/lib/data.ts` — landing-page copy (features, steps, prompt placeholders, suggestions).
   Keep marketing content out of components.
 
 The fixed header is cleared by `pt-22` on `<main>` in each route-group layout (`pt-4` inset + `h-14`
 pane + gap); changing the header's height or inset means updating every group, plus the
-`h-[calc(100dvh-5.5rem)]` the workspace uses to fit both panels on one screen.
+`h-[calc(100dvh-5.5rem)]` the workspace uses to fit both panels on one screen — and the `-mt-22
+pt-22` the hero uses to cancel that offset. The hero cancels it so its sky and starfield reach the
+top of the page and sit *behind* the frosted pane; content lands in the same place either way.
 
 **That `h-[calc(...)]` must stay a definite height — `flex-1` will not do.** `body` is `min-h-full`,
 so nothing above the workspace has a resolved height for a percentage or flex basis to size
@@ -187,7 +219,7 @@ shoves the composer past the bottom edge. Both failure modes look like "the comp
 Arbitrary animations (`animate-[shimmer_…]`, `animate-[blink_…]`) still need their `@keyframes`
 declared in `globals.css` — Tailwind does not invent them from the class name.
 
-**Sandpack (`CodePanel`) has three traps, all previously hit:**
+**Sandpack (`CodePanel`) has four traps, all previously hit:**
 
 1. **Do not use `<SandpackLayout>`.** It sizes children through a `> .sp-stack` child selector, so
    the moment you wrap a pane in anything — a tab panel, a flex row — the panes lose their height
@@ -202,6 +234,23 @@ declared in `globals.css` — Tailwind does not invent them from the class name.
 3. **The provider wrapper is a flex container,** so the panel's root needs `min-w-0 flex-1` or the
    preview renders in a narrow strip with dead space beside it. While dragging the divider, an
    overlay has to cover the preview or the iframe eats the mouse events.
+4. **Remounting `SandpackProvider` is expensive and unreliable — key it on the dependency set and
+   nothing else.** A remount discards the bundler iframe and re-fetches it from
+   `*-sandpack.codesandbox.io`, which 503s often enough to matter; the fetch has no retry, so the
+   panel just sits on its loading overlay and reloading the page is the only cure. This was the
+   "I have to refresh to see the output" bug: the key was the file *path set*, which almost always
+   changes on the first generation.
+
+   Code changes need no remount — `useFiles` reacts to the `files` prop and `sandpack.updateFile`
+   pushes into the live client. New *packages* do: dependencies reach the bundler as a generated
+   `/package.json`, and an already-installed client will not install again.
+
+   Two supporting rules. **Memoise `files` and `customSetup`** — `useFiles` watches them by
+   identity, so inline objects made every render reset Sandpack's state constantly and re-arm the
+   recompile debounce, cancelling the pending one each time. And **`listen` is a plain function,
+   not a `useCallback`**, so it is a fresh identity per render; keep it in a ref rather than an
+   effect dependency, or the effect re-arms forever. The build watchdog in `SandpackInner` depends
+   on both of those being right.
 
 Theming goes through `src/lib/sandpack-theme.ts`, which is the `globals.css` dark tokens resolved
 to hex. Sandpack does colour maths on some values, so hand it literals, not `var(--brand)`.

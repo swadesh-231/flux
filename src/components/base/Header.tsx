@@ -2,54 +2,34 @@ import Link from "next/link";
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { ArrowRight } from "lucide-react";
 
-import { NewProjectDialog } from "@/components/project/NewProjectDialog";
 import { Button } from "@/components/ui/button";
-import { NAV_LINKS, SITE } from "@/lib/constants";
+import { APP_NAV_LINKS, NAV_LINKS, SITE } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 import HeaderShell from "./HeaderShell";
 import Logo from "./Logo";
 import MobileNav from "./MobileNav";
+import { NavLink } from "./NavLink";
 
 /** Tightens up in step with the shell as it condenses. */
 const squeeze =
   "transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 
 /**
- * A nav link built as a target, not a label: full-height hit area with a
- * squared plate on hover, in the uppercase micro-type of the design system.
+ * The marketing navbar, worn by the landing page and the auth pages.
+ *
+ * Three zones on a grid so the centre group is optically centred rather than
+ * wherever `justify-between` happens to leave it. The centre track carries the
+ * page anchors and nothing else — a signed-in visitor gets "Open app" in the
+ * right cluster, next to their avatar, because their own workspace belongs with
+ * their account rather than in the middle of a marketing bar. The signed-in app
+ * itself wears `AppHeader`.
  */
-function NavLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "inline-flex h-9 items-center rounded-full px-3.5",
-        "text-[0.6875rem] font-semibold uppercase tracking-widest",
-        "text-muted-foreground hover:bg-white/[0.07] hover:text-foreground",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
-        squeeze,
-        "group-data-[state=condensed]/header:h-8",
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
-
 const Header = () => {
   return (
     <HeaderShell>
-      {/* Three zones on a grid, so the centre group sits optically centred
-          rather than wherever justify-between happens to leave it. */}
       <nav className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 sm:gap-4 sm:px-6">
-        <div className="flex justify-start">
+        <div className="flex min-w-0 justify-start">
           <Link
             href="/"
             aria-label={`${SITE.name} — home`}
@@ -65,18 +45,13 @@ const Header = () => {
           </Link>
         </div>
 
+        {/* Page anchors, and only page anchors. */}
         <div className="hidden items-center md:flex">
-          <Show when="signed-out">
-            {NAV_LINKS.map((link) => (
-              <NavLink key={link.href} href={link.href}>
-                {link.label}
-              </NavLink>
-            ))}
-          </Show>
-
-          <Show when="signed-in">
-            <NavLink href="/projects">Projects</NavLink>
-          </Show>
+          {NAV_LINKS.map((link) => (
+            <NavLink key={link.href} href={link.href}>
+              {link.label}
+            </NavLink>
+          ))}
         </div>
 
         {/* Pinned to the third track — when the centre nav is display:none
@@ -113,24 +88,28 @@ const Header = () => {
           </Show>
 
           <Show when="signed-in">
-            {/* Opens the naming dialog rather than dropping straight into an
-                untitled workspace. */}
-            <NewProjectDialog>
-              <Button size="sm" className="rounded-full">
-                New project
+            {/* One way back into the app, rather than a second nav cluster. */}
+            <Button
+              asChild
+              size="sm"
+              className="hidden rounded-full sm:inline-flex"
+            >
+              <Link href="/projects">
+                Open app
                 <ArrowRight data-icon="inline-end" aria-hidden />
-              </Button>
-            </NewProjectDialog>
+              </Link>
+            </Button>
 
             {/* Separates account from navigation — the pause reads as structure. */}
             <span aria-hidden className="hidden h-5 w-px bg-border sm:block" />
 
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: "h-8 w-8",
-                },
-              }}
+            <UserButton appearance={{ elements: { avatarBox: "h-8 w-8" } }} />
+
+            {/* Carries the app's own destinations too, since the "Open app"
+                button above is hidden at this width. */}
+            <MobileNav
+              links={[...APP_NAV_LINKS, ...NAV_LINKS]}
+              withAuthActions={false}
             />
           </Show>
         </div>

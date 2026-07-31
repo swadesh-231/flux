@@ -8,6 +8,7 @@ import { GENERATION_COST } from "@/lib/constants";
 import {
   AllProvidersUnavailableError,
   isTransientLlmMessage,
+  MissingProviderError,
 } from "@/lib/ai/generate";
 import { providersForRole, type AiProvider } from "@/lib/ai/providers";
 import { db } from "@/lib/prisma";
@@ -245,8 +246,20 @@ RULES:
         let result: Awaited<ReturnType<Agent["run"]>> | null = null;
         let lastTransientMessage = "";
 
-        // Improvements are repairs, so they lead with the fix chain.
-        for (const provider of providersForRole("fix")) {
+        // Improvements are repairs, so they run on the fix chain — Gemini then
+        // Groq, never OpenAI. See PROVIDER_ROLES.
+        const fixProviders = providersForRole("fix");
+
+        if (fixProviders.length === 0) {
+          throw new MissingProviderError("fix");
+        }
+
+        for (const provider of fixProviders) {
+          // Logged rather than streamed: this route's client branch handles
+          // `thinking`/`file_patch`/`done`/`error` only, and the panel shows a
+          // fixed "Agent is rewriting your files…" label while it runs.
+          console.log(`[improve] running on ${provider.id}/${provider.model}`);
+
           const agent = buildAgent(provider);
           activeAgent = agent;
           const unsubscribe = subscribeToAgent(agent);
@@ -274,7 +287,10 @@ RULES:
         }
 
         if (!result) {
-          throw new AllProvidersUnavailableError(lastTransientMessage);
+          throw new AllProvidersUnavailableError(
+            lastTransientMessage,
+            fixProviders.map((provider) => provider.label),
+          );
         }
         if (result.status === "aborted") {
           // Client-initiated stop — nothing to save, nothing to charge.

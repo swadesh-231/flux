@@ -16,15 +16,26 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Below `md` the centre nav is hidden and this hamburger carries the same
- * links. Below `sm` the header CTAs disappear too, so the panel picks up
- * Sign in / Get started as a footer. Controlled, so those Clerk buttons can
- * close the menu before their modal opens.
+ * Below the breakpoint at which the header shows its nav inline, this hamburger
+ * carries the same links.
+ *
+ * `withAuthActions` adds Sign in / Get started as a footer, for the marketing
+ * header only — below `sm` it hides its own CTAs, so the panel has to carry
+ * them. The signed-in app header passes `false`: the account menu is always
+ * visible there, so repeating auth in a drawer would be noise.
+ *
+ * Controlled, so those Clerk buttons can close the menu before their modal
+ * opens. `triggerClassName` sets the breakpoint the trigger disappears at,
+ * which differs between the two headers.
  */
 export function MobileNav({
   links,
+  withAuthActions = true,
+  triggerClassName = "md:hidden",
 }: {
   links: readonly { readonly href: string; readonly label: string }[];
+  withAuthActions?: boolean;
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const close = () => setOpen(false);
@@ -35,7 +46,10 @@ export function MobileNav({
         <Button
           variant="outline"
           size="icon-sm"
-          className="rounded-full border-white/10 bg-white/[0.06] hover:bg-white/10 md:hidden"
+          className={cn(
+            "rounded-full border-white/10 bg-white/[0.06] hover:bg-white/10",
+            triggerClassName,
+          )}
           aria-label="Open navigation"
         >
           {/* Bars morph into a cross with a quarter turn, riding the
@@ -82,12 +96,14 @@ export function MobileNav({
             asChild
             className="rounded-lg px-3 py-2.5"
           >
-            <Link href={link.href}>{link.label}</Link>
+            <Link href={link.href} onClick={close}>
+              {link.label}
+            </Link>
           </DropdownMenuItem>
         ))}
 
         {/* Auth actions live here only while the header hides its own. */}
-        <div className="sm:hidden">
+        <div className={cn("sm:hidden", !withAuthActions && "hidden")}>
           <DropdownMenuSeparator className="-mx-2 my-2" />
 
           <div className="grid grid-cols-2 gap-2 p-1">

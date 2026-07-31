@@ -49,30 +49,38 @@ export function DeleteProjectModal({
   return (
     <Dialog>
       <DialogTrigger className="cursor-pointer">{children}</DialogTrigger>
-      <DialogContent className="border-white/8 bg-[#111111] text-white sm:max-w-sm">
+
+      {/* Themed through tokens rather than literal hexes, so the dialog follows
+          `globals.css` like every other surface. */}
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="text-sm font-semibold text-white/90">
+          <DialogTitle className="font-heading text-xl font-normal tracking-tight">
             Delete project?
           </DialogTitle>
-          <DialogDescription className="text-xs text-white/35">
+          <DialogDescription className="text-sm leading-relaxed text-muted-foreground">
             &ldquo;{project.title ?? "Untitled project"}&rdquo; will be
-            permanently deleted. This cannot be undone.
+            permanently deleted, along with its transcript and generated files.
+            This cannot be undone.
           </DialogDescription>
         </DialogHeader>
 
         <DialogFooter className="gap-2">
-          <DialogClose>
-            <span className="text-xs text-white/40 hover:text-white/70 pr-2">
+          <DialogClose asChild>
+            <Button variant="ghost" size="sm" className="rounded-full">
               Cancel
-            </span>
+            </Button>
           </DialogClose>
+
           <Button
+            variant="destructive"
             size="sm"
             onClick={handleDelete}
             disabled={isPending}
-            className="h-8 rounded-full bg-red-500/90 px-4 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+            className="rounded-full"
           >
-            {isPending && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+            {isPending ? (
+              <Loader2 className="animate-spin" data-icon="inline-start" />
+            ) : null}
             Delete
           </Button>
         </DialogFooter>

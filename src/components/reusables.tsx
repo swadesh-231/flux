@@ -14,7 +14,21 @@ import { cn } from "@/lib/utils";
  * follows `globals.css`.
  */
 
-/** Consistent vertical rhythm and a centred measure for every band of the page. */
+/**
+ * Consistent vertical rhythm and a centred measure for every band of the page.
+ *
+ * The gutter is *inside* the `max-w-6xl` track rather than outside it, which is
+ * what makes the page line up with the header: the header pane is also
+ * `max-w-6xl` and pads its nav inwards by the same `px-6`, so once both hit
+ * their max width the logo sits exactly above the first character of every
+ * section. Padding the section from the outside instead put the whole page
+ * 1.5rem to the left of the wordmark.
+ *
+ * `SECTION_CONTAINER` is exported so surfaces that cannot use `Section` — the
+ * footer, the signed-in pages — can align to the same track.
+ */
+export const SECTION_CONTAINER = "mx-auto w-full max-w-6xl px-6";
+
 export function Section({
   className,
   containerClassName,
@@ -22,13 +36,15 @@ export function Section({
   ...props
 }: React.ComponentProps<"section"> & { containerClassName?: string }) {
   return (
-    <section
-      className={cn("scroll-mt-28 px-6 py-24 sm:py-32", className)}
-      {...props}
-    >
-      <div className={cn("mx-auto w-full max-w-6xl", containerClassName)}>
-        {children}
-      </div>
+    // Vertical padding is half the gap you actually see: two stacked sections
+    // contribute one `pb` and one `pt` each. At `py-24 sm:py-32` that was 256px
+    // of dead space between every band, which read as the page having come
+    // apart rather than as breathing room.
+    // `scroll-mt` only has to clear the condensed header (2.5rem inset + 3rem
+    // pane) — the section's own top padding supplies the breathing room, so a
+    // larger value just drops the eyebrow into the middle of the viewport.
+    <section className={cn("scroll-mt-20 py-16 sm:py-24", className)} {...props}>
+      <div className={cn(SECTION_CONTAINER, containerClassName)}>{children}</div>
     </section>
   );
 }

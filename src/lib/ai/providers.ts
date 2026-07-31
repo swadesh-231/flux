@@ -64,20 +64,35 @@ const PROVIDERS: Record<AiProvider["id"], AiProvider> = {
 };
 
 /**
- * What a request is for. The two jobs want different strengths, so each leads
- * with a different provider and keeps the others as fallback:
+ * What a request is for. The two chains are **exclusive**, not merely ordered:
  *
- * - `build` — writing a whole app from a description. OpenAI leads; it is the
- *   most reliable at returning one large, well-formed JSON document.
- * - `fix` — repairing a broken preview or applying an improvement. Gemini
- *   leads (its reasoning output drives the status list), with Groq behind it
- *   for speed.
+ * - `build` — writing a whole app from a description. **OpenAI only.** It is by
+ *   far the most reliable at returning one large, well-formed JSON document,
+ *   and a whole app is the response most likely to come back truncated or
+ *   shapeless from a weaker model.
+ * - `fix` — repairing a broken preview (the "Fix it" button on the error
+ *   banner) or applying an improvement. **Gemini, then Groq.** Gemini's
+ *   reasoning output is what drives the live status list; Groq is behind it for
+ *   speed. Neither job ever crosses into the other's chain.
+ *
+ * The trade: an OpenAI outage stops new builds outright instead of quietly
+ * degrading to a weaker model — a half-formed app still costs a credit and a
+ * rebuild. Fixes keep working throughout, since they never touch OpenAI. To go
+ * back to a single shared chain with fallback, widen the arrays here; nothing
+ * else reads the provider order.
  */
 export type ProviderRole = "build" | "fix";
 
 const PROVIDER_ROLES: Record<ProviderRole, AiProvider["id"][]> = {
-  build: ["openai", "gemini", "groq"],
-  fix: ["gemini", "groq", "openai"],
+  build: ["openai"],
+  fix: ["gemini", "groq"],
+};
+
+/** Env var behind each provider, for the "nothing configured" message. */
+const PROVIDER_ENV: Record<AiProvider["id"], string> = {
+  openai: "OPEN_AI_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  groq: "GROQ_API_KEY",
 };
 
 /** Providers for a job, in preference order, skipping any without a key. */
@@ -87,9 +102,20 @@ export function providersForRole(role: ProviderRole): AiProvider[] {
     .filter((provider) => Boolean(provider.apiKey()));
 }
 
-/** Every configured provider, in build order. Used for logging and diagnostics. */
+/**
+ * What a role needs when `providersForRole` comes back empty. Named separately
+ * so the failure says "set GEMINI_API_KEY or GROQ_API_KEY" rather than listing
+ * every key in the app, most of which would not help.
+ */
+export function requiredEnvForRole(role: ProviderRole): string[] {
+  return PROVIDER_ROLES[role].map((id) => PROVIDER_ENV[id]);
+}
+
+/** Every provider that has a key, regardless of role. For diagnostics only. */
 export function configuredProviders(): AiProvider[] {
-  return providersForRole("build");
+  return Object.values(PROVIDERS).filter((provider) =>
+    Boolean(provider.apiKey()),
+  );
 }
 
 /**
